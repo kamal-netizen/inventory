@@ -4,19 +4,59 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
 
+type Status = "all" | "in" | "low" | "out";
+
+const isLow = (p: Product) => p.low_stock_at > 0 && p.quantity <= p.low_stock_at;
+
 export default function StockList({ products }: { products: Product[] }) {
   const [search, setSearch] = useState("");
+  const [brand, setBrand] = useState("");
+  const [status, setStatus] = useState<Status>("all");
+
+  const brands = useMemo(
+    () => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [products]
+  );
+
+  // Brand narrows first, and the status counts are taken from that narrowed set
+  // — a chip reading "3 low" while showing none of them is worse than no count.
+  const inBrand = useMemo(
+    () => (brand ? products.filter((p) => p.brand === brand) : products),
+    [products, brand]
+  );
+
+  const counts = useMemo(
+    () => ({
+      all: inBrand.length,
+      in: inBrand.filter((p) => p.quantity > 0).length,
+      low: inBrand.filter(isLow).length,
+      out: inBrand.filter((p) => p.quantity === 0).length,
+    }),
+    [inBrand]
+  );
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return products;
-    return products.filter(
-      (product) =>
+    return inBrand.filter((product) => {
+      if (status === "in" && product.quantity <= 0) return false;
+      if (status === "out" && product.quantity !== 0) return false;
+      if (status === "low" && !isLow(product)) return false;
+      if (!term) return true;
+      return (
         product.name.toLowerCase().includes(term) ||
         product.flavor.toLowerCase().includes(term) ||
         product.brand.toLowerCase().includes(term)
-    );
-  }, [products, search]);
+      );
+    });
+  }, [inBrand, search, status]);
+
+  const filtered = Boolean(brand) || status !== "all" || Boolean(search.trim());
+
+  function clearFilters() {
+    setBrand("");
+    setStatus("all");
+    setSearch("");
+  }
 
   // Products arrive ordered by brand, so grouping is just a walk down the list.
   const groups = useMemo(() => {
@@ -28,10 +68,6 @@ export default function StockList({ products }: { products: Product[] }) {
     }
     return out;
   }, [visible]);
-
-  const lowCount = products.filter(
-    (product) => product.low_stock_at > 0 && product.quantity <= product.low_stock_at
-  ).length;
 
   if (products.length === 0) {
     return (
@@ -120,26 +156,82 @@ export default function StockList({ products }: { products: Product[] }) {
         </Link>
       </div>
 
+      {/* Chips scroll sideways on a phone rather than wrapping the row in two. */}
+      <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:overflow-visible md:px-0">
+        <select
+          value={brand}
+          onChange={(event) => setBrand(event.target.value)}
+          aria-label="Filter by brand"
+          className="h-10 max-w-[9.5rem] shrink-0 rounded-xl border border-line bg-surface px-3
+                     text-[14px] font-medium outline-none focus:border-brand md:max-w-none"
+        >
+          <option value="">All brands</option>
+          {brands.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+
+        {(
+          [
+            ["all", "All"],
+            ["in", "In stock"],
+            ["low", "Low"],
+            ["out", "None left"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setStatus(value)}
+            aria-pressed={status === value}
+            className={`h-10 shrink-0 rounded-xl px-3 text-[14px] font-medium transition ${
+              status === value
+                ? value === "low"
+                  ? "bg-warn-soft text-warn"
+                  : "bg-brand-soft text-brand"
+                : "border border-line bg-surface text-muted hover:text-ink"
+            }`}
+          >
+            {label}
+            <span className="ml-1.5 tabular-nums opacity-60">{counts[value]}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-[14px] text-muted">
-          {search
+          {filtered
             ? `${visible.length} of ${products.length} products`
             : `${products.length} products`}
         </p>
-        {lowCount > 0 && !search && (
-          <span className="flex items-center gap-1.5 rounded-full bg-warn-soft px-3 py-1 text-[13px] font-medium text-warn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 3.5 22 20H2L12 3.5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-              <path d="M12 10v4" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-              <circle cx="12" cy="17" r="1.2" fill="currentColor" />
-            </svg>
-            {lowCount} running low
-          </span>
+        {filtered && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="rounded-lg px-2 py-1 text-[13px] font-medium text-muted transition
+                       hover:bg-surface hover:text-ink"
+          >
+            Clear filters
+          </button>
         )}
       </div>
 
       {visible.length === 0 ? (
-        <p className="px-1 py-10 text-center text-[15px] text-muted">Nothing matches “{search}”.</p>
+        <div className="px-1 py-10 text-center">
+          <p className="text-[15px] text-muted">
+            {search ? `Nothing matches “${search}”.` : "Nothing matches these filters."}
+          </p>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="mt-3 rounded-xl border border-line bg-surface px-4 py-2 text-[14px] font-medium
+                       transition hover:border-brand hover:text-brand"
+          >
+            Clear filters
+          </button>
+        </div>
       ) : (
         groups.map((group) => (
           <section key={group.brand || "_none"} className="mb-4">
