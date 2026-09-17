@@ -9,7 +9,7 @@ export default async function NewInvoicePage() {
   const warehouse = await requireWarehouse();
   return (
     <>
-      <PageHeader title="New invoice" subtitle={warehouse.name} />
+      <PageHeader title="New delivery note" subtitle={warehouse.name} />
       <InvoiceForm products={listProducts(warehouse.key)} warehouseKey={warehouse.key} />
     </>
   );

@@ -15,7 +15,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
 
   return (
     <div className="md:max-w-2xl">
-      <PageHeader title="Invoice" back="/invoices" />
+      <PageHeader title="Delivery note" back="/invoices" />
       <InvoiceDetail invoice={found.invoice} lines={found.lines} units={found.units} />
     </div>
   );

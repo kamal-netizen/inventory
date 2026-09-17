@@ -19,7 +19,7 @@ const TABS = [
   },
   {
     href: "/invoice/new",
-    label: "New invoice",
+    label: "New delivery note",
     short: "New",
     exact: true,
     icon: (
@@ -31,8 +31,8 @@ const TABS = [
   },
   {
     href: "/invoices",
-    label: "Invoices",
-    short: "Invoices",
+    label: "Delivery notes",
+    short: "Notes",
     exact: false,
     icon: (
       <>

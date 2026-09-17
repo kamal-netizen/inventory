@@ -136,8 +136,8 @@ export default function InvoiceDetail({
 
       {cancelled ? (
         <p className="rounded-2xl bg-page px-4 py-3 text-[15px] leading-snug text-muted">
-          This invoice was cancelled and all {units} units went back into stock. It is kept here so
-          the record stays complete.
+          This delivery note was cancelled and all {units} units went back into stock. It is kept
+          here so the record stays complete.
         </p>
       ) : (
         <button
@@ -146,14 +146,14 @@ export default function InvoiceDetail({
           className="tap w-full rounded-2xl border border-line text-[15px] font-semibold text-danger
                      transition hover:bg-danger-soft"
         >
-          Cancel invoice
+          Cancel delivery note
         </button>
       )}
 
       {asking && (
         <Confirm
           title={`Cancel ${invoice.ref}?`}
-          body={`All ${units} units go back into stock. The invoice stays here, marked cancelled.`}
+          body={`All ${units} units go back into stock. The note stays here, marked cancelled.`}
           cancelLabel="Keep it"
           confirmLabel="Cancel it"
           danger

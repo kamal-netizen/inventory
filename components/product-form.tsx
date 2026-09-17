@@ -171,7 +171,7 @@ export default function ProductForm({
           {removing && (
             <Confirm
               title={`Remove ${product!.name}?`}
-              body="It disappears from your stock list. Past invoices that used it stay intact."
+              body="It disappears from your stock list. Past delivery notes that used it stay intact."
               cancelLabel="Keep"
               confirmLabel="Remove"
               danger

@@ -33,7 +33,7 @@ export function buildInvoicePdf(input: {
     size: "A4",
     margin: MARGIN,
     info: {
-      Title: `Invoice ${invoice.ref}`,
+      Title: `Delivery note ${invoice.ref}`,
       Author: warehouseName,
       Subject: `Stock issued against ${invoice.ref}`,
     },
@@ -56,7 +56,7 @@ export function buildInvoicePdf(input: {
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED)
-    .text("STOCK ISSUE NOTE", MARGIN, doc.y + 2, { characterSpacing: 1.2 });
+    .text("DELIVERY NOTE", MARGIN, doc.y + 2, { characterSpacing: 1.2 });
 
   const headerTop = MARGIN;
   doc

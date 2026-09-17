@@ -15,7 +15,7 @@ const REASON_LABEL: Record<string, string> = {
   in: "Stock in",
   out: "Stock out",
   adjust: "Adjusted",
-  invoice: "Invoice",
+  invoice: "Delivery note",
 };
 
 export default function HistoryList({
@@ -61,7 +61,7 @@ export default function HistoryList({
       <div className="card mt-2 px-6 py-12 text-center">
         <p className="text-[17px] font-semibold">Nothing yet</p>
         <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
-          Every stock change and invoice line will show up here, permanently.
+          Every stock change and delivery note line will show up here, permanently.
         </p>
       </div>
     );

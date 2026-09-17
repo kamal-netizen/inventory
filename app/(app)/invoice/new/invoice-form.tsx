@@ -112,7 +112,7 @@ export default function InvoiceForm({
       return;
     }
     if (!reference.trim()) {
-      setError("Enter the invoice or sales order number");
+      setError("Enter the delivery note or sales order number");
       return;
     }
 
@@ -288,7 +288,7 @@ export default function InvoiceForm({
 
           <div className="mt-5 space-y-4">
             <label className="block">
-              <span className="mb-1.5 block font-medium">Invoice / SO number</span>
+              <span className="mb-1.5 block font-medium">Delivery note / SO number</span>
               <input
                 value={reference}
                 onChange={(event) => {
@@ -300,7 +300,7 @@ export default function InvoiceForm({
                   const { usedOn } = await checkInvoiceRefAction(reference);
                   setDuplicate(usedOn);
                 }}
-                placeholder="INV-2451"
+                placeholder="DN-2451"
                 className="h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none
                            placeholder:text-muted focus:border-brand"
               />
@@ -450,7 +450,7 @@ function LineSheet({
             className="tap flex-[1.6] rounded-2xl bg-brand font-semibold text-white transition
                        hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
           >
-            {current > 0 ? "Update" : "Add to invoice"}
+            {current > 0 ? "Update" : "Add to note"}
           </button>
         </div>
       </div>

@@ -188,7 +188,7 @@ export function undoMovement(warehouse: string, movementId: number): void {
       .get(warehouse, movementId) as Movement | undefined;
 
     if (!movement) throw new AppError("That change was already undone");
-    if (movement.invoice_id) throw new AppError("Cancel the invoice instead");
+    if (movement.invoice_id) throw new AppError("Cancel the delivery note instead");
 
     const product = getProduct(warehouse, movement.product_id);
     if (!product) throw new AppError("Product not found");
@@ -231,7 +231,7 @@ export function createInvoice(
   input: { ref: string; customer: string; lines: InvoiceLine[] }
 ): number {
   const ref = input.ref.trim();
-  if (!ref) throw new AppError("Invoice number is required");
+  if (!ref) throw new AppError("Delivery note number is required");
   if (input.lines.length === 0) throw new AppError("Add at least one product");
 
   const create = db().transaction(() => {
@@ -239,7 +239,7 @@ export function createInvoice(
     const shortages: string[] = [];
     for (const line of input.lines) {
       const product = getProduct(warehouse, line.productId);
-      if (!product) throw new AppError("A product on this invoice no longer exists");
+      if (!product) throw new AppError("A product on this delivery note no longer exists");
       if (line.quantity <= 0) throw new AppError("Quantity must be at least 1");
       if (line.quantity > product.quantity) {
         const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
@@ -278,8 +278,8 @@ export function createInvoice(
 export function cancelInvoice(warehouse: string, invoiceId: number): void {
   const cancel = db().transaction(() => {
     const invoice = getInvoice(warehouse, invoiceId);
-    if (!invoice) throw new AppError("Invoice not found");
-    if (invoice.status === "cancelled") throw new AppError("This invoice is already cancelled");
+    if (!invoice) throw new AppError("Delivery note not found");
+    if (invoice.status === "cancelled") throw new AppError("This delivery note is already cancelled");
 
     const lines = db()
       .prepare("SELECT * FROM movements WHERE warehouse = ? AND invoice_id = ? AND undone = 0")

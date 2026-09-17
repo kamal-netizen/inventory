@@ -71,8 +71,8 @@ export default function InvoiceList({
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search invoice number or customer"
-            aria-label="Search invoices"
+            placeholder="Search note number or customer"
+            aria-label="Search delivery notes"
             className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-4 outline-none
                        placeholder:text-muted focus:border-brand"
           />
@@ -92,17 +92,17 @@ export default function InvoiceList({
 
       <p className="mb-2 px-1 text-[14px] text-muted">
         {total === 0
-          ? "No invoices yet"
-          : `${total} invoice${total === 1 ? "" : "s"}${search ? " found" : ""}`}
+          ? "No delivery notes yet"
+          : `${total} delivery note${total === 1 ? "" : "s"}${search ? " found" : ""}`}
       </p>
 
       {invoices.length === 0 ? (
         <div className="card px-6 py-12 text-center">
-          <p className="text-[17px] font-semibold">{search ? "Nothing found" : "No invoices yet"}</p>
+          <p className="text-[17px] font-semibold">{search ? "Nothing found" : "No delivery notes yet"}</p>
           <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
             {search
-              ? "Try part of the invoice number or the customer name."
-              : "Every invoice you save is kept here permanently."}
+              ? "Try part of the note number or the customer name."
+              : "Every delivery note you save is kept here permanently."}
           </p>
         </div>
       ) : (
