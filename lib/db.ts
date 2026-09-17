@@ -67,18 +67,31 @@ const MIGRATIONS: string[] = [
   `,
 ];
 
-function migrate(db: Database.Database) {
-  const version = db.pragma("user_version", { simple: true }) as number;
-  for (let i = version; i < MIGRATIONS.length; i++) {
-    db.exec("BEGIN");
-    try {
-      db.exec(MIGRATIONS[i]);
-      db.pragma(`user_version = ${i + 1}`);
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
+/**
+ * Applies any migrations this file has that the database does not.
+ *
+ * BEGIN IMMEDIATE, not BEGIN, and the version is read INSIDE the transaction.
+ * A deferred BEGIN takes no write lock until the first write, so two processes
+ * starting together both read user_version = 0, both run migration 1, and the
+ * second dies with "table products already exists". That is not hypothetical:
+ * `next build` collects page data with several workers at once, and a server
+ * can start more than one worker process against the same file.
+ *
+ * Taking the write lock up front serialises them. The loser waits (busy_timeout
+ * is already set), re-reads the version, finds nothing to do, and commits.
+ */
+function migrate(connection: Database.Database) {
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    const version = connection.pragma("user_version", { simple: true }) as number;
+    for (let i = version; i < MIGRATIONS.length; i++) {
+      connection.exec(MIGRATIONS[i]);
+      connection.pragma(`user_version = ${i + 1}`);
     }
+    connection.exec("COMMIT");
+  } catch (err) {
+    connection.exec("ROLLBACK");
+    throw err;
   }
 }
 
@@ -89,17 +102,28 @@ function connect(): Database.Database {
   const file = path.resolve(/*turbopackIgnore: true*/ process.env.DATABASE_PATH || "./data/inventory.db");
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
-  const db = new Database(file);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
-  migrate(db);
-  return db;
+  const connection = new Database(file);
+  connection.pragma("journal_mode = WAL");
+  connection.pragma("foreign_keys = ON");
+  connection.pragma("busy_timeout = 5000");
+  migrate(connection);
+  return connection;
 }
 
 // Reuse one connection across hot reloads in dev, otherwise every edit leaks a handle.
 const cache = globalThis as unknown as { __inventoryDb?: Database.Database };
-export const db: Database.Database = cache.__inventoryDb ?? (cache.__inventoryDb = connect());
+
+/**
+ * The connection, opened on first query rather than at import.
+ *
+ * A function, not a constant, because `next build` evaluates every route module
+ * to collect page data — and a constant would open the file and run migrations
+ * during the build, in each of several parallel workers, against a database the
+ * built image has no business touching.
+ */
+export function db(): Database.Database {
+  return (cache.__inventoryDb ??= connect());
+}
 
 export function now(): string {
   return new Date().toISOString();

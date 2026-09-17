@@ -15,7 +15,7 @@ export class AppError extends Error {}
 
 export function listProducts(warehouse: string, search = ""): Product[] {
   const term = `%${search.trim().toLowerCase()}%`;
-  return db
+  return db()
     .prepare(
       `SELECT * FROM products
        WHERE warehouse = ? AND hidden = 0
@@ -27,7 +27,7 @@ export function listProducts(warehouse: string, search = ""): Product[] {
 }
 
 export function getProduct(warehouse: string, id: number): Product | null {
-  const row = db
+  const row = db()
     .prepare("SELECT * FROM products WHERE warehouse = ? AND id = ?")
     .get(warehouse, id) as Product | undefined;
   return row ?? null;
@@ -40,10 +40,10 @@ export function createProduct(
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
 
-  const create = db.transaction(() => {
+  const create = db().transaction(() => {
     let id: number;
     try {
-      const result = db
+      const result = db()
         .prepare(
           `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -83,12 +83,12 @@ export function updateProduct(
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
 
-  const update = db.transaction(() => {
+  const update = db().transaction(() => {
     const product = getProduct(warehouse, id);
     if (!product) throw new AppError("Product not found");
 
     try {
-      db.prepare(
+      db().prepare(
         "UPDATE products SET brand = ?, name = ?, flavor = ?, low_stock_at = ? WHERE warehouse = ? AND id = ?"
       ).run((input.brand ?? product.brand).trim(), name, input.flavor.trim(), input.lowStockAt, warehouse, id);
     } catch (err) {
@@ -102,7 +102,7 @@ export function updateProduct(
     // any other change rather than silently rewriting the number.
     if (input.quantity !== undefined && input.quantity !== product.quantity) {
       if (input.quantity < 0) throw new AppError("Quantity cannot be negative");
-      db.prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+      db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
         input.quantity,
         warehouse,
         id
@@ -116,7 +116,7 @@ export function updateProduct(
 
 /** Distinct brands already in use, for the brand suggestions on the product form. */
 export function listBrands(warehouse: string): string[] {
-  const rows = db
+  const rows = db()
     .prepare(
       `SELECT DISTINCT brand FROM products
        WHERE warehouse = ? AND hidden = 0 AND brand <> ''
@@ -128,7 +128,7 @@ export function listBrands(warehouse: string): string[] {
 
 /** Products are hidden, never deleted, so past invoices keep making sense. */
 export function hideProduct(warehouse: string, id: number): void {
-  db.prepare("UPDATE products SET hidden = 1 WHERE warehouse = ? AND id = ?").run(warehouse, id);
+  db().prepare("UPDATE products SET hidden = 1 WHERE warehouse = ? AND id = ?").run(warehouse, id);
 }
 
 /* ---------------------------------- stock ---------------------------------- */
@@ -141,7 +141,7 @@ function logMovement(
   ref: string,
   invoiceId: number | null = null
 ): number {
-  const result = db
+  const result = db()
     .prepare(
       `INSERT INTO movements (warehouse, product_id, change, reason, ref, invoice_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -160,7 +160,7 @@ export function adjustStock(
 ): { quantity: number; movementId: number } {
   const why: Reason = reason ?? (change >= 0 ? "in" : "out");
 
-  const apply = db.transaction(() => {
+  const apply = db().transaction(() => {
     const product = getProduct(warehouse, productId);
     if (!product) throw new AppError("Product not found");
 
@@ -169,7 +169,7 @@ export function adjustStock(
       throw new AppError(`Only ${product.quantity} in stock — cannot remove ${Math.abs(change)}`);
     }
 
-    db.prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+    db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
       quantity,
       warehouse,
       productId
@@ -182,8 +182,8 @@ export function adjustStock(
 
 /** Reverse a single stock change and mark it undone. */
 export function undoMovement(warehouse: string, movementId: number): void {
-  const undo = db.transaction(() => {
-    const movement = db
+  const undo = db().transaction(() => {
+    const movement = db()
       .prepare("SELECT * FROM movements WHERE warehouse = ? AND id = ? AND undone = 0")
       .get(warehouse, movementId) as Movement | undefined;
 
@@ -196,12 +196,12 @@ export function undoMovement(warehouse: string, movementId: number): void {
     const quantity = product.quantity - movement.change;
     if (quantity < 0) throw new AppError(`Cannot undo — only ${product.quantity} in stock now`);
 
-    db.prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+    db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
       quantity,
       warehouse,
       movement.product_id
     );
-    db.prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(movementId);
+    db().prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(movementId);
   });
 
   undo();
@@ -210,7 +210,7 @@ export function undoMovement(warehouse: string, movementId: number): void {
 /* ---------------------------------- invoices ---------------------------------- */
 
 export function invoiceRefUsed(warehouse: string, ref: string): Invoice | null {
-  const row = db
+  const row = db()
     .prepare(
       "SELECT * FROM invoices WHERE warehouse = ? AND lower(ref) = lower(?) ORDER BY id DESC LIMIT 1"
     )
@@ -219,7 +219,7 @@ export function invoiceRefUsed(warehouse: string, ref: string): Invoice | null {
 }
 
 export function getInvoice(warehouse: string, id: number): Invoice | null {
-  const row = db
+  const row = db()
     .prepare("SELECT * FROM invoices WHERE warehouse = ? AND id = ?")
     .get(warehouse, id) as Invoice | undefined;
   return row ?? null;
@@ -234,7 +234,7 @@ export function createInvoice(
   if (!ref) throw new AppError("Invoice number is required");
   if (input.lines.length === 0) throw new AppError("Add at least one product");
 
-  const create = db.transaction(() => {
+  const create = db().transaction(() => {
     // Check every line before touching anything, so one error names all the problems.
     const shortages: string[] = [];
     for (const line of input.lines) {
@@ -251,7 +251,7 @@ export function createInvoice(
     }
 
     const invoiceId = Number(
-      db
+      db()
         .prepare(
           `INSERT INTO invoices (warehouse, ref, customer, status, created_at)
            VALUES (?, ?, ?, 'active', ?)`
@@ -260,7 +260,7 @@ export function createInvoice(
     );
 
     for (const line of input.lines) {
-      db.prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
+      db().prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
         line.quantity,
         warehouse,
         line.productId
@@ -276,26 +276,26 @@ export function createInvoice(
 
 /** Put every line's stock back. The invoice stays in history, marked cancelled. */
 export function cancelInvoice(warehouse: string, invoiceId: number): void {
-  const cancel = db.transaction(() => {
+  const cancel = db().transaction(() => {
     const invoice = getInvoice(warehouse, invoiceId);
     if (!invoice) throw new AppError("Invoice not found");
     if (invoice.status === "cancelled") throw new AppError("This invoice is already cancelled");
 
-    const lines = db
+    const lines = db()
       .prepare("SELECT * FROM movements WHERE warehouse = ? AND invoice_id = ? AND undone = 0")
       .all(warehouse, invoiceId) as Movement[];
 
     for (const line of lines) {
       // line.change is negative, so subtracting it adds the stock back.
-      db.prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
+      db().prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
         line.change,
         warehouse,
         line.product_id
       );
-      db.prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(line.id);
+      db().prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(line.id);
     }
 
-    db.prepare("UPDATE invoices SET status = 'cancelled', cancelled_at = ? WHERE id = ?").run(
+    db().prepare("UPDATE invoices SET status = 'cancelled', cancelled_at = ? WHERE id = ?").run(
       now(),
       invoiceId
     );
@@ -327,7 +327,7 @@ export function listInvoices(
   const search = (options.search ?? "").trim().toLowerCase();
   const term = `%${search}%`;
 
-  return db
+  return db()
     .prepare(
       `SELECT i.*,
               (SELECT count(*) FROM movements m WHERE m.invoice_id = i.id) AS lines,
@@ -344,7 +344,7 @@ export function listInvoices(
 export function countInvoices(warehouse: string, search = ""): number {
   const trimmed = search.trim().toLowerCase();
   const term = `%${trimmed}%`;
-  const row = db
+  const row = db()
     .prepare(
       `SELECT count(*) AS n FROM invoices
        WHERE warehouse = ? AND (? = '' OR lower(ref) LIKE ? OR lower(customer) LIKE ?)`
@@ -361,7 +361,7 @@ export function getInvoiceWithLines(
   const invoice = getInvoice(warehouse, id);
   if (!invoice) return null;
 
-  const lines = db
+  const lines = db()
     .prepare(
       `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
               NULL AS invoice_ref, NULL AS invoice_status
@@ -388,7 +388,7 @@ export function listMovements(
   warehouse: string,
   options: { limit?: number; offset?: number } = {}
 ): MovementRow[] {
-  return db
+  return db()
     .prepare(
       `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
               i.ref AS invoice_ref, i.status AS invoice_status
@@ -403,7 +403,7 @@ export function listMovements(
 }
 
 export function countMovements(warehouse: string): number {
-  const row = db
+  const row = db()
     .prepare("SELECT count(*) AS n FROM movements WHERE warehouse = ?")
     .get(warehouse) as { n: number };
   return row.n;
@@ -435,7 +435,7 @@ export function planImport(
   rows: ImportCandidate[],
   options: { hasQuantity: boolean; hasLowStock: boolean }
 ): PlannedRow[] {
-  const find = db.prepare(
+  const find = db().prepare(
     `SELECT id, quantity, low_stock_at FROM products
      WHERE warehouse = ? AND lower(brand) = lower(?) AND lower(name) = lower(?) AND lower(flavor) = lower(?)`
   );
@@ -474,13 +474,13 @@ export function applyImport(
   let added = 0;
   let updated = 0;
 
-  const run = db.transaction(() => {
+  const run = db().transaction(() => {
     for (const row of rows) {
       if (row.action === "same") continue;
 
       if (row.action === "add") {
         const id = Number(
-          db
+          db()
             .prepare(
               `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -496,7 +496,7 @@ export function applyImport(
       if (!row.existingId) continue;
 
       if (options.hasLowStock) {
-        db.prepare("UPDATE products SET low_stock_at = ? WHERE warehouse = ? AND id = ?").run(
+        db().prepare("UPDATE products SET low_stock_at = ? WHERE warehouse = ? AND id = ?").run(
           row.lowStockAt,
           warehouse,
           row.existingId
@@ -504,7 +504,7 @@ export function applyImport(
       }
 
       if (options.hasQuantity && row.currentQuantity !== null && row.quantity !== row.currentQuantity) {
-        db.prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+        db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
           row.quantity,
           warehouse,
           row.existingId

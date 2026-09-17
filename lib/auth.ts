@@ -103,7 +103,7 @@ interface Attempt {
 }
 
 function attemptRow(ip: string): Attempt {
-  const row = db.prepare("SELECT fails, lockouts, locked_until FROM login_attempts WHERE ip = ?").get(ip) as
+  const row = db().prepare("SELECT fails, lockouts, locked_until FROM login_attempts WHERE ip = ?").get(ip) as
     | Attempt
     | undefined;
   return row ?? { fails: 0, lockouts: 0, locked_until: null };
@@ -132,7 +132,7 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
 
   const warehouse = warehouseByPin(pin);
   if (warehouse) {
-    db.prepare("DELETE FROM login_attempts WHERE ip = ?").run(ip);
+    db().prepare("DELETE FROM login_attempts WHERE ip = ?").run(ip);
     await startSession(warehouse);
     return { ok: true };
   }
@@ -145,7 +145,7 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
     const minutes = LOCK_MINUTES[Math.min(lockouts, LOCK_MINUTES.length) - 1];
     const until = new Date(Date.now() + minutes * 60000).toISOString();
 
-    db.prepare(
+    db().prepare(
       `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES (?, 0, ?, ?)
        ON CONFLICT(ip) DO UPDATE SET fails = 0, lockouts = ?, locked_until = ?`
     ).run(ip, lockouts, until, lockouts, until);
@@ -153,7 +153,7 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
     return { ok: false, reason: "wrong", triesLeft: 0, minutes };
   }
 
-  db.prepare(
+  db().prepare(
     `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES (?, ?, 0, NULL)
      ON CONFLICT(ip) DO UPDATE SET fails = ?`
   ).run(ip, fails, fails);
