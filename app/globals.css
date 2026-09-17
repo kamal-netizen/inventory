@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/*
+ * Light only, on purpose. This gets read at a glance on a phone under warehouse
+ * lighting, and a misread number costs money — one high-contrast theme beats two.
+ */
+@theme {
+  --color-page: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-ink: #121820;
+  --color-muted: #66707d;
+  --color-line: #e2e7ed;
+
+  --color-brand: #0c7a52;
+  --color-brand-soft: #e6f4ee;
+
+  --color-warn: #a65209;
+  --color-warn-soft: #fdf1e1;
+
+  --color-danger: #c02626;
+  --color-danger-soft: #fdeaea;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+html {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Kill the 300ms tap delay and stop double-tap zoom on buttons. */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* iOS zooms the page if an input is under 16px. */
+input,
+select,
+textarea {
+  font-size: 17px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+@utility card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+
+/* Every tappable thing is at least this tall — thumbs, not cursors. */
+@utility tap {
+  min-height: 56px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shake {
+  10%,
+  90% {
+    transform: translateX(-3px);
+  }
+  30%,
+  70% {
+    transform: translateX(5px);
+  }
+  50% {
+    transform: translateX(-5px);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.18s ease-out;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}

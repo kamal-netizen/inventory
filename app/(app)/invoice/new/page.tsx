@@ -1,0 +1,16 @@
+import PageHeader from "@/components/page-header";
+import { requireWarehouse } from "@/lib/auth";
+import { listProducts } from "@/lib/queries";
+import InvoiceForm from "./invoice-form";
+
+export const dynamic = "force-dynamic";
+
+export default async function NewInvoicePage() {
+  const warehouse = await requireWarehouse();
+  return (
+    <>
+      <PageHeader title="New invoice" subtitle={warehouse.name} />
+      <InvoiceForm products={listProducts(warehouse.key)} warehouseKey={warehouse.key} />
+    </>
+  );
+}
