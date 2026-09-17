@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createProductAction, hideProductAction, updateProductAction } from "@/app/actions";
 import Confirm from "./confirm";
 import { useToast } from "./toast";
 import type { Product } from "@/lib/types";
+
+/**
+ * Sentinel for the "add a new one" option. Not a value any brand could hold:
+ * brands are trimmed on save, and nothing in the catalogue looks like this.
+ */
+const NEW_BRAND = "__new_brand__";
 
 export default function ProductForm({
   product,
@@ -19,6 +25,8 @@ export default function ProductForm({
   const editing = Boolean(product);
 
   const [brand, setBrand] = useState(product?.brand ?? "");
+  const [typingBrand, setTypingBrand] = useState(false);
+
   const [name, setName] = useState(product?.name ?? "");
   const [flavor, setFlavor] = useState(product?.flavor ?? "");
   const [quantity, setQuantity] = useState(product ? String(product.quantity) : "");
@@ -28,6 +36,19 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  /**
+   * The brands on offer, plus this product's own.
+   *
+   * `brands` comes from visible products only, so a product whose brand is
+   * otherwise used only by hidden ones would have its brand silently dropped by
+   * a select that had no option for it.
+   */
+  const brandOptions = useMemo(() => {
+    const all = new Set(brands);
+    if (product?.brand) all.add(product.brand);
+    return [...all].sort((a, b) => a.localeCompare(b));
+  }, [brands, product?.brand]);
 
   const newQuantity = Number(quantity || 0);
   const quantityChanged = editing && newQuantity !== product!.quantity;
@@ -87,21 +108,67 @@ export default function ProductForm({
 
   return (
     <div className="space-y-4">
-      <Field
-        label="Brand"
-        hint="Leave blank if it has none"
-        value={brand}
-        onChange={setBrand}
-        placeholder="Optimum Nutrition"
-        list={brands.length > 0 ? "known-brands" : undefined}
-      />
-      {brands.length > 0 && (
-        <datalist id="known-brands">
-          {brands.map((option) => (
-            <option key={option} value={option} />
-          ))}
-        </datalist>
-      )}
+      {/*
+        A list you pick from, not a text box wearing a dropdown arrow.
+        It was a <datalist>, which put an arrow beside a grey placeholder —
+        reading as "already set to Optimum Nutrition" when the field was in fact
+        empty. It also gave no sign the list existed until you found the arrow,
+        and Firefox on Android ignores datalist entirely.
+
+        A native select shows "No brand" as a real value, opens the OS picker on
+        a phone, and makes adding a brand a deliberate choice rather than a
+        typo away.
+      */}
+      <label className="block">
+        <span className="mb-1.5 block font-medium">Brand</span>
+        <span className="mb-1.5 -mt-1 block text-[14px] text-muted">Optional</span>
+
+        {typingBrand ? (
+          <div className="flex gap-2">
+            <input
+              value={brand}
+              onChange={(event) => setBrand(event.target.value)}
+              placeholder="New brand name"
+              autoFocus
+              className="h-14 min-w-0 flex-1 rounded-2xl border border-line bg-surface px-4 outline-none
+                         placeholder:text-muted focus:border-brand"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setTypingBrand(false);
+                setBrand("");
+              }}
+              className="h-14 shrink-0 rounded-2xl border border-line px-4 font-medium text-muted
+                         transition hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <select
+            value={brand}
+            onChange={(event) => {
+              if (event.target.value === NEW_BRAND) {
+                setTypingBrand(true);
+                setBrand("");
+              } else {
+                setBrand(event.target.value);
+              }
+            }}
+            className="h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none
+                       focus:border-brand"
+          >
+            <option value="">No brand</option>
+            {brandOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+            <option value={NEW_BRAND}>+ Add a new brand…</option>
+          </select>
+        )}
+      </label>
 
       <Field
         label="Product name"
