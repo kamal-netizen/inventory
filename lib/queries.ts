@@ -209,6 +209,43 @@ export function undoMovement(warehouse: string, movementId: number): void {
 
 /* ---------------------------------- invoices ---------------------------------- */
 
+/**
+ * The number to offer for the next delivery note: the last one for this
+ * warehouse with its trailing digits bumped by one.
+ *
+ * Reading the last note rather than inventing a format is what lets the app
+ * carry on the numbering already in use — 46984 becomes 46985 — instead of
+ * starting a second, competing run alongside it.
+ *
+ * Per warehouse, like everything else here. A shared counter would leak how
+ * busy the other side is through the gaps in your own numbers.
+ *
+ * Returns empty strings when there is nothing to go on: no notes yet, or a last
+ * number that does not end in digits. Guessing at that point would be worse
+ * than an empty box.
+ */
+export function nextRef(warehouse: string): { next: string; from: string } {
+  const row = db()
+    .prepare("SELECT ref FROM invoices WHERE warehouse = ? ORDER BY id DESC LIMIT 1")
+    .get(warehouse) as { ref: string } | undefined;
+
+  const from = row?.ref.trim() ?? "";
+  const match = /^(.*?)(\d+)$/.exec(from);
+  // Beyond 15 digits Number() starts rounding, and a wrong number is worse
+  // than none.
+  if (!match || match[2].length > 15) return { next: "", from: "" };
+
+  const [, prefix, digits] = match;
+  const bumped = String(Number(digits) + 1);
+  // Keep zero padding that was there: 0007 → 0008, but 46984 → 46985.
+  const next =
+    digits.startsWith("0") && bumped.length < digits.length
+      ? bumped.padStart(digits.length, "0")
+      : bumped;
+
+  return { next: prefix + next, from };
+}
+
 export function invoiceRefUsed(warehouse: string, ref: string): Invoice | null {
   const row = db()
     .prepare(

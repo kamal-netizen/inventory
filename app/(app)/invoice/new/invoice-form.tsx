@@ -18,9 +18,12 @@ export const draftKey = (warehouse: string) => `invoice-draft:${warehouse}`;
 export default function InvoiceForm({
   products,
   warehouseKey,
+  suggested,
 }: {
   products: Product[];
   warehouseKey: string;
+  /** The next number in the run, and the one it follows. Both empty if unknown. */
+  suggested: { next: string; from: string };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -38,9 +41,10 @@ export default function InvoiceForm({
   const byId = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const key = draftKey(warehouseKey);
 
-  // Bring back an unfinished invoice — someone checking a number on the stock
+  // Bring back an unfinished note — someone checking a number on the stock
   // screen and coming back should not lose what they already keyed in.
   useEffect(() => {
+    let fromDraft = "";
     try {
       const saved = localStorage.getItem(key);
       if (saved) {
@@ -49,14 +53,20 @@ export default function InvoiceForm({
           // Skip anything that has since been removed from the product list.
           setLines(draft.lines.filter((line: Line) => byId.has(line.productId)));
         }
-        setReference(typeof draft.reference === "string" ? draft.reference : "");
+        fromDraft = typeof draft.reference === "string" ? draft.reference : "";
+        setReference(fromDraft);
         setCustomer(typeof draft.customer === "string" ? draft.customer : "");
       }
     } catch {
       // Private mode or blocked storage — carry on with an empty form.
     }
+
+    // Only suggest into an empty box. A number already typed — even a cleared
+    // one the person is about to replace — is theirs, not ours to overwrite.
+    if (!fromDraft && suggested.next) setReference(suggested.next);
+
     setRestored(true);
-    // Runs once; byId is stable for the life of this mount.
+    // Runs once; byId and suggested are fixed for the life of this mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -304,6 +314,13 @@ export default function InvoiceForm({
                 className="h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none
                            placeholder:text-muted focus:border-brand"
               />
+              {/* Only while the suggestion is untouched — once it is edited the
+                  note no longer describes what is in the box. */}
+              {!duplicate && suggested.from && reference === suggested.next && (
+                <span className="mt-1.5 block text-[14px] text-muted">
+                  Follows {suggested.from}. Type over it if you need a different number.
+                </span>
+              )}
               {duplicate && (
                 <span className="mt-1.5 block text-[14px] text-warn">
                   Already used on {formatDay(duplicate)} — saving again is allowed.
