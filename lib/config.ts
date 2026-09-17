@@ -40,18 +40,38 @@ function loadWarehouses(): Warehouse[] {
   return warehouses;
 }
 
-export const WAREHOUSES = loadWarehouses();
+let cached: Warehouse[] | null = null;
+
+/**
+ * Read on first use, NOT at import.
+ *
+ * `next build` evaluates every route module to collect its page data, and a
+ * deployment platform injects environment variables when the container starts —
+ * long after the build. Parsing at module scope therefore throws during the
+ * build with "WAREHOUSES is empty", which reads like a missing setting and is
+ * really just a module that cannot be imported without one.
+ *
+ * Lazy keeps both properties: the build imports this file happily, and the
+ * first request still fails loudly and immediately if the config is wrong,
+ * rather than serving a half-configured app.
+ */
+function warehouses(): Warehouse[] {
+  return (cached ??= loadWarehouses());
+}
 
 export function warehouseByPin(pin: string): Warehouse | undefined {
-  return WAREHOUSES.find((w) => w.pin === pin);
+  return warehouses().find((w) => w.pin === pin);
 }
 
 export function warehouseByKey(key: string): Warehouse | undefined {
-  return WAREHOUSES.find((w) => w.key === key);
+  return warehouses().find((w) => w.key === key);
 }
 
 /** Longest PIN in use — the keypad submits once this many digits are entered. */
-export const PIN_LENGTH = Math.max(...WAREHOUSES.map((w) => w.pin.length));
+export function pinLength(): number {
+  return Math.max(...warehouses().map((w) => w.pin.length));
+}
 
-
-export const TRUSTED_DEVICE_DAYS = Number(process.env.TRUSTED_DEVICE_DAYS ?? 60);
+export function trustedDeviceDays(): number {
+  return Number(process.env.TRUSTED_DEVICE_DAYS ?? 60);
+}

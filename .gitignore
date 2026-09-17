@@ -45,3 +45,6 @@ next-env.d.ts
 
 # keep the example, ignore the real thing
 !.env.example
+
+# local MCP wiring — points at your control plane, not part of the app
+.mcp.json

@@ -2,7 +2,7 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { db, now } from "./db";
-import { TRUSTED_DEVICE_DAYS, warehouseByKey, warehouseByPin, type Warehouse } from "./config";
+import { trustedDeviceDays, warehouseByKey, warehouseByPin, type Warehouse } from "./config";
 
 const COOKIE = "inv_session";
 
@@ -71,7 +71,7 @@ const COOKIE_OPTIONS = {
 async function startSession(warehouse: Warehouse) {
   (await cookies()).set(COOKIE, makeToken(warehouse.key), {
     ...COOKIE_OPTIONS,
-    maxAge: TRUSTED_DEVICE_DAYS * 24 * 60 * 60,
+    maxAge: trustedDeviceDays() * 24 * 60 * 60,
   });
 }
 
