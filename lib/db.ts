@@ -159,7 +159,17 @@ export async function db(): Promise<Pool> {
     }
   })();
 
-  await migrated;
+  try {
+    await migrated;
+  } catch (error) {
+    // Do not keep a rejected promise: a database that was briefly unreachable
+    // would otherwise leave this process permanently broken, rethrowing the
+    // first failure forever even once the database came back.
+    migrated = null;
+    cache.__inventoryMigrated = undefined;
+    throw error;
+  }
+
   return active;
 }
 

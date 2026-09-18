@@ -1,10 +1,26 @@
 import { redirect } from "next/navigation";
 import { getWarehouse } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { BottomNav, SideNav } from "@/components/nav";
 import LogoutButton from "@/components/logout-button";
 import { ToastProvider } from "@/components/toast";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
+  /**
+   * Prove the database is there before anything else, including the redirect.
+   *
+   * This is what a deploy's health check actually tests. It probes `/`, and for
+   * a signed-out visitor `/` used to redirect to /login without reading
+   * anything — so a build with no database answered 307, was declared healthy,
+   * took live traffic and served 500s on every page that did real work.
+   *
+   * Cheap after the first request: db() hands back an already-resolved pool, so
+   * this is an await on a settled promise. When it is not there, `/` fails
+   * instead of redirecting, the health check sees 500, and the deploy rolls
+   * back to the version that worked.
+   */
+  await db();
+
   // The only gate. Every page below this is signed in, and `warehouse` is the
   // key that every query filters on.
   const warehouse = await getWarehouse();
