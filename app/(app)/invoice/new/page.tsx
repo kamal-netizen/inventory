@@ -11,9 +11,9 @@ export default async function NewInvoicePage() {
     <>
       <PageHeader title="New delivery note" subtitle={warehouse.name} />
       <InvoiceForm
-        products={listProducts(warehouse.key)}
+        products={await listProducts(warehouse.key)}
         warehouseKey={warehouse.key}
-        suggested={nextRef(warehouse.key)}
+        suggested={await nextRef(warehouse.key)}
       />
     </>
   );

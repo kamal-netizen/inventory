@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 
 export default async function StockPage() {
   const warehouse = await requireWarehouse();
-  return <StockList products={listProducts(warehouse.key)} />;
+  return <StockList products={await listProducts(warehouse.key)} />;
 }

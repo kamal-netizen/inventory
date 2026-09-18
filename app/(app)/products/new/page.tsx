@@ -10,7 +10,7 @@ export default async function NewProductPage() {
   return (
     <div className="md:max-w-lg">
       <PageHeader title="Add product" />
-      <ProductForm brands={listBrands(warehouse.key)} />
+      <ProductForm brands={await listBrands(warehouse.key)} />
     </div>
   );
 }

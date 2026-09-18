@@ -5,12 +5,14 @@ two PINs, completely separate stock. Desktop-first, and it still works on a phon
 
 ## Running it
 
+Needs a PostgreSQL database. Point `DATABASE_URL` in `.env` at it and:
+
 ```bash
 npm run dev
 ```
 
-Everything configurable lives in `.env` — PINs, warehouse names, where the database
-file goes.
+The schema is created on the first query — there is no separate migrate step.
+Everything else configurable lives in `.env` too: PINs, warehouse names, logos.
 
 ## Logging in
 
@@ -32,25 +34,26 @@ npm run unlock
 ## What it does
 
 - **Stock list** — every product grouped by brand, searchable by product, brand or
-  flavour. Low-stock items turn amber and sort to the top. Click a row to open it.
+  flavour, filterable by brand and by whether there is any. Low-stock items turn amber
+  and sort to the top. Rendered 50 at a time; search still covers the whole list.
 - **Product** — brand, name, flavour, quantity and low-stock alert. Typing a new
   quantity is recorded in History as a correction, never a silent rewrite.
 - **Import from Excel** — upload a .xlsx or .csv, see exactly what will be added or
   changed, then confirm. Covers the awkward real-world cases: a single column, headers
   like `ItemName`, blank separator rows, and brand names sitting on their own row as
   section headings. A blank template is one click away.
-- **New invoice** — search, pick, enter quantity, repeat; add the invoice/SO number and
-  save. All lines commit in one transaction. An unfinished invoice survives navigating
-  away or reloading.
-- **Invoices** — every invoice ever raised, kept permanently. Searchable by number or
+- **New delivery note** — search, pick, enter quantity, repeat. The number is offered
+  for you, carried on from the last one. All lines commit in one transaction, and an
+  unfinished note survives navigating away or reloading.
+- **Delivery notes** — every note ever raised, kept permanently. Searchable by number or
   customer, paged 50 at a time. Open one to see its lines, download a PDF, or cancel it
   (which puts all its stock back and marks it cancelled rather than deleting it).
-- **History** — the full movement log, newest first, grouped by day and paged. Invoice
-  lines link through to the stored invoice. Undo any manual change. Nothing is ever
+- **History** — the full movement log, newest first, grouped by day and paged. Note
+  lines link through to the stored document. Undo any manual change. Nothing is ever
   deleted.
 
 Stock can never go negative, and products are hidden rather than deleted so old
-invoices keep making sense.
+delivery notes keep making sense.
 
 ## Import rules
 
@@ -66,16 +69,16 @@ invoices keep making sense.
 app/
   login/                     number pad
   api/import-template/       blank .xlsx download
-  api/invoices/[id]/pdf/     invoice PDF
+  api/invoices/[id]/pdf/     delivery note PDF
   (app)/                     everything behind the PIN
     page.tsx                 stock list
     products/                add, edit, import
-    invoice/new/             new invoice
-    invoices/                stored invoices + detail
+    invoice/new/             new delivery note
+    invoices/                stored delivery notes + detail
     history/                 movement log + undo
 lib/
   config.ts                  reads warehouses from .env (server only)
-  db.ts                      SQLite connection + migrations
+  db.ts                      Postgres pool, migrations, transaction helper
   queries.ts                 all data access — every query filtered by warehouse
   auth.ts                    PIN check, session cookie, lockout
   import.ts                  spreadsheet parsing
@@ -85,11 +88,14 @@ lib/
 `lib/queries.ts` is the isolation boundary: every function takes a warehouse key and
 filters on it, so no query can read across warehouses.
 
-## The invoice PDF
+## The delivery note PDF
 
-A one-page A4 note: warehouse name, invoice number, date, customer, every line with its
-brand and quantity, and a total. It carries no prices, so it is labelled a stock issue
-note rather than a tax invoice.
+A one-page A4 note: the warehouse logo and name, note number, date, customer, every line
+with its brand and quantity, and a total. It carries no prices, so it says plainly that
+it is not a tax invoice.
+
+pdfkit draws PNG and JPEG and never SVG, so `npm run logos` rasterises each logo once
+and the result is committed. Re-run it after replacing one.
 
 The file downloads as `[warehouse] [SO no] [date].pdf`, e.g.
 `Muscle Fusion 46984 17-09-2026.pdf`.
@@ -102,8 +108,21 @@ existing records correctly rather than rewriting anything.
 
 ## The database
 
-One SQLite file at `data/inventory.db`. Back it up by copying that file. Schema changes
-go in the `MIGRATIONS` array in `lib/db.ts` — append a new entry, never edit an existing
-one.
+PostgreSQL, reached through `DATABASE_URL`. In production the deployment platform
+injects it, which requires the project's database to allow direct connections —
+without that the app has no database to talk to and will not start.
 
-To start over with an empty database, stop the app and delete `data/`.
+This was SQLite in a file until the app moved onto a platform that rebuilds the
+container on every deploy. The file lived inside the container, so every deploy
+threw it away along with everything in it. That is the whole reason for Postgres:
+the data has to outlive the container.
+
+Schema changes go in the `MIGRATIONS` array in `lib/db.ts` — append a new entry,
+never edit an existing one. They run on first query, inside an advisory lock, so
+several instances starting together cannot race each other.
+
+Every write that touches more than one row goes through `transaction()` in
+`lib/db.ts`, and everything inside it must use the client it is handed. Reaching
+for `query()` instead takes a different connection from the pool and lands outside
+the transaction — which is how an all-or-nothing delivery note quietly becomes a
+partial one.

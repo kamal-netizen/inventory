@@ -7,7 +7,7 @@ export async function GET(_request: Request, context: RouteContext<"/api/invoice
   const warehouse = await requireWarehouse();
   const { id } = await context.params;
 
-  const found = getInvoiceWithLines(warehouse.key, Number(id));
+  const found = await getInvoiceWithLines(warehouse.key, Number(id));
   if (!found) return new Response("Not found", { status: 404 });
 
   const pdf = await buildInvoicePdf({

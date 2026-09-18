@@ -10,7 +10,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
   const warehouse = await requireWarehouse();
   const { id } = await params;
 
-  const found = getInvoiceWithLines(warehouse.key, Number(id));
+  const found = await getInvoiceWithLines(warehouse.key, Number(id));
   if (!found) notFound();
 
   return (

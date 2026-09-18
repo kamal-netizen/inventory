@@ -45,7 +45,7 @@ export async function logoutAction(): Promise<void> {
 export async function undoMovementAction(movementId: number): Promise<Result> {
   try {
     const warehouse = await requireWarehouse();
-    q.undoMovement(warehouse.key, movementId);
+    await q.undoMovement(warehouse.key, movementId);
     refreshAll();
     return { ok: true };
   } catch (err) {
@@ -64,7 +64,7 @@ export async function createProductAction(input: {
 }): Promise<Result<{ id: number }>> {
   try {
     const warehouse = await requireWarehouse();
-    const id = q.createProduct(warehouse.key, input);
+    const id = await q.createProduct(warehouse.key, input);
     refreshAll();
     return { ok: true, id };
   } catch (err) {
@@ -78,7 +78,7 @@ export async function updateProductAction(
 ): Promise<Result> {
   try {
     const warehouse = await requireWarehouse();
-    q.updateProduct(warehouse.key, id, input);
+    await q.updateProduct(warehouse.key, id, input);
     refreshAll();
     return { ok: true };
   } catch (err) {
@@ -89,7 +89,7 @@ export async function updateProductAction(
 export async function hideProductAction(id: number): Promise<Result> {
   try {
     const warehouse = await requireWarehouse();
-    q.hideProduct(warehouse.key, id);
+    await q.hideProduct(warehouse.key, id);
     refreshAll();
     return { ok: true };
   } catch (err) {
@@ -104,7 +104,7 @@ export async function checkInvoiceRefAction(ref: string): Promise<{ usedOn: stri
   try {
     const warehouse = await requireWarehouse();
     if (!ref.trim()) return { usedOn: null };
-    const existing = q.invoiceRefUsed(warehouse.key, ref);
+    const existing = await q.invoiceRefUsed(warehouse.key, ref);
     return { usedOn: existing ? existing.created_at : null };
   } catch {
     return { usedOn: null };
@@ -118,7 +118,7 @@ export async function createInvoiceAction(input: {
 }): Promise<Result<{ id: number }>> {
   try {
     const warehouse = await requireWarehouse();
-    const id = q.createInvoice(warehouse.key, input);
+    const id = await q.createInvoice(warehouse.key, input);
     refreshAll();
     return { ok: true, id };
   } catch (err) {
@@ -137,8 +137,8 @@ export async function loadInvoicesAction(
     const warehouse = await requireWarehouse();
     return {
       ok: true,
-      invoices: q.listInvoices(warehouse.key, { search, limit: PAGE, offset: Math.max(0, offset) }),
-      total: q.countInvoices(warehouse.key, search),
+      invoices: await q.listInvoices(warehouse.key, { search, limit: PAGE, offset: Math.max(0, offset) }),
+      total: await q.countInvoices(warehouse.key, search),
     };
   } catch (err) {
     return fail(err);
@@ -153,8 +153,8 @@ export async function loadHistoryAction(
     const warehouse = await requireWarehouse();
     return {
       ok: true,
-      movements: q.listMovements(warehouse.key, { limit: PAGE, offset: Math.max(0, offset) }),
-      total: q.countMovements(warehouse.key),
+      movements: await q.listMovements(warehouse.key, { limit: PAGE, offset: Math.max(0, offset) }),
+      total: await q.countMovements(warehouse.key),
     };
   } catch (err) {
     return fail(err);
@@ -164,7 +164,7 @@ export async function loadHistoryAction(
 export async function cancelInvoiceAction(id: number): Promise<Result> {
   try {
     const warehouse = await requireWarehouse();
-    q.cancelInvoice(warehouse.key, id);
+    await q.cancelInvoice(warehouse.key, id);
     refreshAll();
     return { ok: true };
   } catch (err) {
@@ -223,7 +223,7 @@ export async function previewImportAction(formData: FormData): Promise<
 
     return {
       ok: true,
-      rows: q.planImport(warehouse.key, sheet.rows, {
+      rows: await q.planImport(warehouse.key, sheet.rows, {
         hasQuantity: sheet.hasQuantity,
         hasLowStock: sheet.hasLowStock,
       }),
@@ -247,7 +247,7 @@ export async function applyImportAction(
 ): Promise<Result<{ added: number; updated: number }>> {
   try {
     const warehouse = await requireWarehouse();
-    const { added, updated } = q.applyImport(warehouse.key, cleanRows(rows), {
+    const { added, updated } = await q.applyImport(warehouse.key, cleanRows(rows), {
       hasQuantity: Boolean(options.hasQuantity),
       hasLowStock: Boolean(options.hasLowStock),
     });

@@ -1,19 +1,23 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
+import "server-only";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 /**
- * One SQLite file holds everything. Both warehouses live in it, but every row
- * carries a `warehouse` key and every query in lib/queries.ts filters on it,
+ * One Postgres database holds everything. Both warehouses live in it, but every
+ * row carries a `warehouse` key and every query in lib/queries.ts filters on it,
  * so neither side can ever read the other's data.
+ *
+ * This was SQLite in a file until the app moved onto a deployment platform that
+ * rebuilds the container on every deploy — which threw the file away each time,
+ * along with everything in it.
  */
 
 const MIGRATIONS: string[] = [
-  // v1 — initial schema
+  // v1 — the schema, as SQLite left it.
   `
   CREATE TABLE products (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           SERIAL PRIMARY KEY,
     warehouse    TEXT    NOT NULL,
+    brand        TEXT    NOT NULL DEFAULT '',
     name         TEXT    NOT NULL,
     flavor       TEXT    NOT NULL DEFAULT '',
     quantity     INTEGER NOT NULL DEFAULT 0,
@@ -21,11 +25,12 @@ const MIGRATIONS: string[] = [
     hidden       INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL
   );
-  CREATE UNIQUE INDEX products_unique ON products(warehouse, lower(name), lower(flavor));
+  CREATE UNIQUE INDEX products_unique
+    ON products(warehouse, lower(brand), lower(name), lower(flavor));
   CREATE INDEX products_warehouse ON products(warehouse, hidden);
 
   CREATE TABLE invoices (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           SERIAL PRIMARY KEY,
     warehouse    TEXT    NOT NULL,
     ref          TEXT    NOT NULL,
     customer     TEXT    NOT NULL DEFAULT '',
@@ -36,7 +41,7 @@ const MIGRATIONS: string[] = [
   CREATE INDEX invoices_warehouse ON invoices(warehouse, created_at);
 
   CREATE TABLE movements (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         SERIAL PRIMARY KEY,
     warehouse  TEXT    NOT NULL,
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     change     INTEGER NOT NULL,
@@ -56,73 +61,147 @@ const MIGRATIONS: string[] = [
     locked_until TEXT
   );
   `,
-
-  // v2 — brand. Real catalogues group products under a manufacturer, and with
-  // several hundred items that grouping is what makes the list navigable.
-  `
-  ALTER TABLE products ADD COLUMN brand TEXT NOT NULL DEFAULT '';
-  DROP INDEX products_unique;
-  CREATE UNIQUE INDEX products_unique
-    ON products(warehouse, lower(brand), lower(name), lower(flavor));
-  `,
 ];
+
+/** Where the schema version lives. Postgres has no PRAGMA user_version. */
+const VERSION_TABLE = `
+  CREATE TABLE IF NOT EXISTS schema_version (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL
+  );
+  INSERT INTO schema_version (id, version) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+`;
+
+/**
+ * Arbitrary but fixed: two app instances starting together must pick the same
+ * number for the lock to mean anything.
+ */
+const MIGRATION_LOCK = 8_713_204;
+
+let pool: Pool | null = null;
+let migrated: Promise<void> | null = null;
+
+function connect(): Pool {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is missing. Locally it goes in .env; in production the " +
+        "platform injects it once the project's database allows direct access."
+    );
+  }
+
+  return new Pool({
+    connectionString,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+}
 
 /**
  * Applies any migrations this file has that the database does not.
  *
- * BEGIN IMMEDIATE, not BEGIN, and the version is read INSIDE the transaction.
- * A deferred BEGIN takes no write lock until the first write, so two processes
- * starting together both read user_version = 0, both run migration 1, and the
- * second dies with "table products already exists". That is not hypothetical:
- * `next build` collects page data with several workers at once, and a server
- * can start more than one worker process against the same file.
- *
- * Taking the write lock up front serialises them. The loser waits (busy_timeout
- * is already set), re-reads the version, finds nothing to do, and commits.
+ * A session-level advisory lock, taken before the version is read, is what makes
+ * two instances starting at once safe: the second waits, re-reads the version,
+ * finds nothing to do and returns. Without it both read version 0 and both try
+ * to create the tables, and the loser dies with "relation already exists".
  */
-function migrate(connection: Database.Database) {
-  connection.exec("BEGIN IMMEDIATE");
+async function migrate(client: PoolClient): Promise<void> {
+  await client.query(VERSION_TABLE);
+  await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK]);
+
   try {
-    const version = connection.pragma("user_version", { simple: true }) as number;
+    const { rows } = await client.query<{ version: number }>(
+      "SELECT version FROM schema_version WHERE id = 1"
+    );
+    const version = rows[0]?.version ?? 0;
+
     for (let i = version; i < MIGRATIONS.length; i++) {
-      connection.exec(MIGRATIONS[i]);
-      connection.pragma(`user_version = ${i + 1}`);
+      await client.query("BEGIN");
+      try {
+        await client.query(MIGRATIONS[i]);
+        await client.query("UPDATE schema_version SET version = $1 WHERE id = 1", [i + 1]);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
     }
-    connection.exec("COMMIT");
-  } catch (err) {
-    connection.exec("ROLLBACK");
-    throw err;
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK]);
   }
 }
 
-function connect(): Database.Database {
-  // The path is deliberately configurable (the VPS may keep the database on its
-  // own volume). The ignore comment stops the bundler tracing the whole project
-  // into the deploy output just because this resolve is dynamic.
-  const file = path.resolve(/*turbopackIgnore: true*/ process.env.DATABASE_PATH || "./data/inventory.db");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-
-  const connection = new Database(file);
-  connection.pragma("journal_mode = WAL");
-  connection.pragma("foreign_keys = ON");
-  connection.pragma("busy_timeout = 5000");
-  migrate(connection);
-  return connection;
-}
-
-// Reuse one connection across hot reloads in dev, otherwise every edit leaks a handle.
-const cache = globalThis as unknown as { __inventoryDb?: Database.Database };
+// Reuse one pool across hot reloads in dev, otherwise every edit leaks handles.
+const cache = globalThis as unknown as {
+  __inventoryPool?: Pool;
+  __inventoryMigrated?: Promise<void>;
+};
 
 /**
- * The connection, opened on first query rather than at import.
+ * The pool, created and migrated on first query rather than at import.
  *
- * A function, not a constant, because `next build` evaluates every route module
- * to collect page data — and a constant would open the file and run migrations
- * during the build, in each of several parallel workers, against a database the
- * built image has no business touching.
+ * `next build` evaluates every route module to collect page data; opening a
+ * database there would connect during the build, in each of several parallel
+ * workers, to something the built image has no business touching.
  */
-export function db(): Database.Database {
-  return (cache.__inventoryDb ??= connect());
+export async function db(): Promise<Pool> {
+  pool ??= cache.__inventoryPool ??= connect();
+  const active = pool;
+
+  // Migrate exactly once per process, and let every caller wait on that one run.
+  migrated ??= cache.__inventoryMigrated ??= (async () => {
+    const client = await active.connect();
+    try {
+      await migrate(client);
+    } finally {
+      client.release();
+    }
+  })();
+
+  await migrated;
+  return active;
+}
+
+/** Run a statement and get the rows back. */
+export async function query<T extends QueryResultRow>(
+  text: string,
+  values: unknown[] = []
+): Promise<T[]> {
+  const result = await (await db()).query<T>(text, values);
+  return result.rows;
+}
+
+/** Run a statement and get the first row, or null. */
+export async function one<T extends QueryResultRow>(
+  text: string,
+  values: unknown[] = []
+): Promise<T | null> {
+  const rows = await query<T>(text, values);
+  return rows[0] ?? null;
+}
+
+/**
+ * Runs `fn` inside a transaction on a single connection.
+ *
+ * Every statement in `fn` must go through the client it is handed — reaching for
+ * `query()` instead takes a different connection from the pool and lands outside
+ * the transaction, which is how a "one or nothing" invoice quietly becomes a
+ * partial one.
+ */
+export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await (await db()).connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export function now(): string {

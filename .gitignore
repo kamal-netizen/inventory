@@ -48,3 +48,6 @@ next-env.d.ts
 
 # local MCP wiring — points at your control plane, not part of the app
 .mcp.json
+
+# superseded by Postgres; kept locally as a fallback
+/data-sqlite-backup

@@ -1,7 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
-import { db, now } from "./db";
+import { now, one, query } from "./db";
 import { trustedDeviceDays, warehouseByKey, warehouseByPin, type Warehouse } from "./config";
 
 const COOKIE = "inv_session";
@@ -102,16 +102,17 @@ interface Attempt {
   locked_until: string | null;
 }
 
-function attemptRow(ip: string): Attempt {
-  const row = db().prepare("SELECT fails, lockouts, locked_until FROM login_attempts WHERE ip = ?").get(ip) as
-    | Attempt
-    | undefined;
+async function attemptRow(ip: string): Promise<Attempt> {
+  const row = await one<Attempt>(
+    "SELECT fails, lockouts, locked_until FROM login_attempts WHERE ip = $1",
+    [ip]
+  );
   return row ?? { fails: 0, lockouts: 0, locked_until: null };
 }
 
 /** Minutes remaining on a lock, or 0 if this IP may try. */
 export async function lockedFor(): Promise<number> {
-  const { locked_until } = attemptRow(await clientIp());
+  const { locked_until } = await attemptRow(await clientIp());
   if (!locked_until) return 0;
 
   const remaining = new Date(locked_until).getTime() - Date.now();
@@ -132,12 +133,12 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
 
   const warehouse = warehouseByPin(pin);
   if (warehouse) {
-    db().prepare("DELETE FROM login_attempts WHERE ip = ?").run(ip);
+    await query("DELETE FROM login_attempts WHERE ip = $1", [ip]);
     await startSession(warehouse);
     return { ok: true };
   }
 
-  const current = attemptRow(ip);
+  const current = await attemptRow(ip);
   const fails = current.fails + 1;
 
   if (fails >= MAX_TRIES) {
@@ -145,18 +146,20 @@ export async function attemptLogin(pin: string): Promise<LoginResult> {
     const minutes = LOCK_MINUTES[Math.min(lockouts, LOCK_MINUTES.length) - 1];
     const until = new Date(Date.now() + minutes * 60000).toISOString();
 
-    db().prepare(
-      `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES (?, 0, ?, ?)
-       ON CONFLICT(ip) DO UPDATE SET fails = 0, lockouts = ?, locked_until = ?`
-    ).run(ip, lockouts, until, lockouts, until);
+    await query(
+      `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES ($1, 0, $2, $3)
+       ON CONFLICT (ip) DO UPDATE SET fails = 0, lockouts = $2, locked_until = $3`,
+      [ip, lockouts, until]
+    );
 
     return { ok: false, reason: "wrong", triesLeft: 0, minutes };
   }
 
-  db().prepare(
-    `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES (?, ?, 0, NULL)
-     ON CONFLICT(ip) DO UPDATE SET fails = ?`
-  ).run(ip, fails, fails);
+  await query(
+    `INSERT INTO login_attempts (ip, fails, lockouts, locked_until) VALUES ($1, $2, 0, NULL)
+     ON CONFLICT (ip) DO UPDATE SET fails = $2`,
+    [ip, fails]
+  );
 
   return { ok: false, reason: "wrong", triesLeft: MAX_TRIES - fails };
 }

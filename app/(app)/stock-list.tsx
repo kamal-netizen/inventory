@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
 
 type Status = "all" | "in" | "low" | "out";
+
+/** Same step as Delivery notes and History, so the button means one thing. */
+const PAGE = 50;
 
 const isLow = (p: Product) => p.low_stock_at > 0 && p.quantity <= p.low_stock_at;
 
@@ -12,6 +15,7 @@ export default function StockList({ products }: { products: Product[] }) {
   const [search, setSearch] = useState("");
   const [brand, setBrand] = useState("");
   const [status, setStatus] = useState<Status>("all");
+  const [shown, setShown] = useState(PAGE);
 
   const brands = useMemo(
     () => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -52,22 +56,38 @@ export default function StockList({ products }: { products: Product[] }) {
 
   const filtered = Boolean(brand) || status !== "all" || Boolean(search.trim());
 
+  // Back to the first page whenever the list underneath changes, or a search
+  // that matches 3 things would still be sitting on "showing 150".
+  useEffect(() => setShown(PAGE), [search, brand, status]);
+
   function clearFilters() {
     setBrand("");
     setStatus("all");
     setSearch("");
   }
 
+  /**
+   * Only this many rows are rendered at a time.
+   *
+   * Filtering stays over the whole list, not the page — it has to, or searching
+   * would only find what you had already scrolled to. Everything is in memory
+   * already, so this is about not putting 600 rows on screen at once, and the
+   * search box remains instant.
+   */
+  const more = Math.max(0, visible.length - shown);
+
   // Products arrive ordered by brand, so grouping is just a walk down the list.
+  // Slicing inside the memo, rather than passing a fresh array in, keeps the
+  // dependency stable — otherwise this recomputes on every render.
   const groups = useMemo(() => {
     const out: { brand: string; items: Product[] }[] = [];
-    for (const product of visible) {
+    for (const product of visible.slice(0, shown)) {
       const last = out[out.length - 1];
       if (last?.brand === product.brand) last.items.push(product);
       else out.push({ brand: product.brand, items: [product] });
     }
     return out;
-  }, [visible]);
+  }, [visible, shown]);
 
   if (products.length === 0) {
     return (
@@ -205,6 +225,7 @@ export default function StockList({ products }: { products: Product[] }) {
           {filtered
             ? `${visible.length} of ${products.length} products`
             : `${products.length} products`}
+          {more > 0 && ` · showing ${shown}`}
         </p>
         {filtered && (
           <button
@@ -291,6 +312,17 @@ export default function StockList({ products }: { products: Product[] }) {
             </ul>
           </section>
         ))
+      )}
+
+      {more > 0 && (
+        <button
+          type="button"
+          onClick={() => setShown((n) => n + PAGE)}
+          className="tap mt-1 w-full rounded-2xl border border-line bg-surface font-semibold
+                     transition hover:border-brand hover:text-brand"
+        >
+          Show {Math.min(PAGE, more)} more
+        </button>
       )}
 
       <div className="mt-3 flex flex-col gap-2 md:hidden">

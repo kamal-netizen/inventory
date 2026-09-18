@@ -1,24 +1,34 @@
 // Clears login lockouts. Run when someone has locked themselves out:
 //   npm run unlock
-import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import pg from "pg";
 
 // Minimal .env reader so this works without extra dependencies.
 const envFile = path.resolve(".env");
 if (fs.existsSync(envFile)) {
   for (const line of fs.readFileSync(envFile, "utf8").split("\n")) {
-    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
   }
 }
 
-const file = path.resolve(process.env.DATABASE_PATH || "./data/inventory.db");
-if (!fs.existsSync(file)) {
-  console.log(`No database at ${file} — nothing to unlock.`);
-  process.exit(0);
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("DATABASE_URL is not set — nothing to connect to.");
+  process.exit(1);
 }
 
-const db = new Database(file);
-const { changes } = db.prepare("DELETE FROM login_attempts").run();
-console.log(changes === 0 ? "Nothing was locked." : `Cleared ${changes} lockout record(s). Anyone can try their PIN again.`);
+const client = new pg.Client({ connectionString });
+await client.connect();
+
+try {
+  const { rowCount } = await client.query("DELETE FROM login_attempts");
+  console.log(
+    rowCount === 0
+      ? "Nothing was locked."
+      : `Cleared ${rowCount} lockout record(s). Anyone can try their PIN again.`
+  );
+} finally {
+  await client.end();
+}

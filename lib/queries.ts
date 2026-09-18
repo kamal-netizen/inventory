@@ -1,5 +1,6 @@
 import "server-only";
-import { db, now } from "./db";
+import type { PoolClient } from "pg";
+import { now, one, query, transaction } from "./db";
 import type { Invoice, InvoiceLine, Movement, Product, Reason } from "./types";
 
 /**
@@ -11,55 +12,69 @@ import type { Invoice, InvoiceLine, Movement, Product, Reason } from "./types";
 /** An error whose message is safe and useful to show the user directly. */
 export class AppError extends Error {}
 
+/** Postgres unique_violation. */
+function isDuplicate(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+}
+
+/** count() and sum() come back as strings — they are bigint on the wire. */
+const int = (value: unknown): number => Number(value ?? 0);
+
 /* ---------------------------------- products ---------------------------------- */
 
-export function listProducts(warehouse: string, search = ""): Product[] {
-  const term = `%${search.trim().toLowerCase()}%`;
-  return db()
-    .prepare(
-      `SELECT * FROM products
-       WHERE warehouse = ? AND hidden = 0
-         AND (? = '%%' OR lower(name) LIKE ? OR lower(flavor) LIKE ? OR lower(brand) LIKE ?)
-       ORDER BY (low_stock_at > 0 AND quantity <= low_stock_at) DESC,
-                lower(brand), lower(name), lower(flavor)`
-    )
-    .all(warehouse, term, term, term, term) as Product[];
+export async function listProducts(warehouse: string, search = ""): Promise<Product[]> {
+  const term = search.trim().toLowerCase();
+  return query<Product>(
+    `SELECT * FROM products
+     WHERE warehouse = $1 AND hidden = 0
+       AND ($2 = '' OR lower(name) LIKE $3 OR lower(flavor) LIKE $3 OR lower(brand) LIKE $3)
+     ORDER BY (low_stock_at > 0 AND quantity <= low_stock_at) DESC,
+              lower(brand), lower(name), lower(flavor)`,
+    [warehouse, term, `%${term}%`]
+  );
 }
 
-export function getProduct(warehouse: string, id: number): Product | null {
-  const row = db()
-    .prepare("SELECT * FROM products WHERE warehouse = ? AND id = ?")
-    .get(warehouse, id) as Product | undefined;
-  return row ?? null;
+export async function getProduct(warehouse: string, id: number): Promise<Product | null> {
+  return one<Product>("SELECT * FROM products WHERE warehouse = $1 AND id = $2", [warehouse, id]);
 }
 
-export function createProduct(
+/** Distinct brands already in use, for the brand picker on the product form. */
+export async function listBrands(warehouse: string): Promise<string[]> {
+  const rows = await query<{ brand: string }>(
+    `SELECT DISTINCT brand FROM products
+     WHERE warehouse = $1 AND hidden = 0 AND brand <> ''
+     ORDER BY lower(brand)`,
+    [warehouse]
+  );
+  return rows.map((row) => row.brand);
+}
+
+export async function createProduct(
   warehouse: string,
   input: { brand?: string; name: string; flavor: string; quantity: number; lowStockAt: number }
-): number {
+): Promise<number> {
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
 
-  const create = db().transaction(() => {
+  return transaction(async (client) => {
     let id: number;
     try {
-      const result = db()
-        .prepare(
-          `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [
           warehouse,
           (input.brand ?? "").trim(),
           name,
           input.flavor.trim(),
           input.quantity,
           input.lowStockAt,
-          now()
-        );
-      id = Number(result.lastInsertRowid);
+          now(),
+        ]
+      );
+      id = rows[0].id;
     } catch (err) {
-      if (String(err).includes("UNIQUE")) {
+      if (isDuplicate(err)) {
         const label = input.flavor.trim() ? `${name} · ${input.flavor.trim()}` : name;
         throw new AppError(`"${label}" is already in your list`);
       }
@@ -67,32 +82,36 @@ export function createProduct(
     }
 
     if (input.quantity !== 0) {
-      logMovement(warehouse, id, input.quantity, "new", "");
+      await logMovement(client, warehouse, id, input.quantity, "new", "");
     }
     return id;
   });
-
-  return create();
 }
 
-export function updateProduct(
+export async function updateProduct(
   warehouse: string,
   id: number,
   input: { brand?: string; name: string; flavor: string; lowStockAt: number; quantity?: number }
-): void {
+): Promise<void> {
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
 
-  const update = db().transaction(() => {
-    const product = getProduct(warehouse, id);
+  await transaction(async (client) => {
+    const { rows } = await client.query<Product>(
+      "SELECT * FROM products WHERE warehouse = $1 AND id = $2",
+      [warehouse, id]
+    );
+    const product = rows[0];
     if (!product) throw new AppError("Product not found");
 
     try {
-      db().prepare(
-        "UPDATE products SET brand = ?, name = ?, flavor = ?, low_stock_at = ? WHERE warehouse = ? AND id = ?"
-      ).run((input.brand ?? product.brand).trim(), name, input.flavor.trim(), input.lowStockAt, warehouse, id);
+      await client.query(
+        `UPDATE products SET brand = $1, name = $2, flavor = $3, low_stock_at = $4
+         WHERE warehouse = $5 AND id = $6`,
+        [(input.brand ?? product.brand).trim(), name, input.flavor.trim(), input.lowStockAt, warehouse, id]
+      );
     } catch (err) {
-      if (String(err).includes("UNIQUE")) {
+      if (isDuplicate(err)) {
         throw new AppError("Another product already has that brand, name and flavour");
       }
       throw err;
@@ -102,112 +121,84 @@ export function updateProduct(
     // any other change rather than silently rewriting the number.
     if (input.quantity !== undefined && input.quantity !== product.quantity) {
       if (input.quantity < 0) throw new AppError("Quantity cannot be negative");
-      db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+      await client.query("UPDATE products SET quantity = $1 WHERE warehouse = $2 AND id = $3", [
         input.quantity,
         warehouse,
-        id
+        id,
+      ]);
+      await logMovement(
+        client,
+        warehouse,
+        id,
+        input.quantity - product.quantity,
+        "adjust",
+        "Set by hand"
       );
-      logMovement(warehouse, id, input.quantity - product.quantity, "adjust", "Set by hand");
     }
   });
-
-  update();
 }
 
-/** Distinct brands already in use, for the brand suggestions on the product form. */
-export function listBrands(warehouse: string): string[] {
-  const rows = db()
-    .prepare(
-      `SELECT DISTINCT brand FROM products
-       WHERE warehouse = ? AND hidden = 0 AND brand <> ''
-       ORDER BY lower(brand)`
-    )
-    .all(warehouse) as { brand: string }[];
-  return rows.map((row) => row.brand);
-}
-
-/** Products are hidden, never deleted, so past invoices keep making sense. */
-export function hideProduct(warehouse: string, id: number): void {
-  db().prepare("UPDATE products SET hidden = 1 WHERE warehouse = ? AND id = ?").run(warehouse, id);
+/** Products are hidden, never deleted, so past delivery notes keep making sense. */
+export async function hideProduct(warehouse: string, id: number): Promise<void> {
+  await query("UPDATE products SET hidden = 1 WHERE warehouse = $1 AND id = $2", [warehouse, id]);
 }
 
 /* ---------------------------------- stock ---------------------------------- */
 
-function logMovement(
+/**
+ * Always takes the transaction's own client. Reaching for the pool here would
+ * log the movement outside the transaction that changed the stock, so a
+ * rollback would leave the log claiming something that never happened.
+ */
+async function logMovement(
+  client: PoolClient,
   warehouse: string,
   productId: number,
   change: number,
   reason: Reason,
   ref: string,
   invoiceId: number | null = null
-): number {
-  const result = db()
-    .prepare(
-      `INSERT INTO movements (warehouse, product_id, change, reason, ref, invoice_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(warehouse, productId, change, reason, ref, invoiceId, now());
-  return Number(result.lastInsertRowid);
-}
-
-/** Apply a stock change, refusing to go below zero. Returns the new quantity. */
-export function adjustStock(
-  warehouse: string,
-  productId: number,
-  change: number,
-  reason?: Reason,
-  ref = ""
-): { quantity: number; movementId: number } {
-  const why: Reason = reason ?? (change >= 0 ? "in" : "out");
-
-  const apply = db().transaction(() => {
-    const product = getProduct(warehouse, productId);
-    if (!product) throw new AppError("Product not found");
-
-    const quantity = product.quantity + change;
-    if (quantity < 0) {
-      throw new AppError(`Only ${product.quantity} in stock — cannot remove ${Math.abs(change)}`);
-    }
-
-    db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
-      quantity,
-      warehouse,
-      productId
-    );
-    return { quantity, movementId: logMovement(warehouse, productId, change, why, ref) };
-  });
-
-  return apply();
+): Promise<number> {
+  const { rows } = await client.query<{ id: number }>(
+    `INSERT INTO movements (warehouse, product_id, change, reason, ref, invoice_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [warehouse, productId, change, reason, ref, invoiceId, now()]
+  );
+  return rows[0].id;
 }
 
 /** Reverse a single stock change and mark it undone. */
-export function undoMovement(warehouse: string, movementId: number): void {
-  const undo = db().transaction(() => {
-    const movement = db()
-      .prepare("SELECT * FROM movements WHERE warehouse = ? AND id = ? AND undone = 0")
-      .get(warehouse, movementId) as Movement | undefined;
+export async function undoMovement(warehouse: string, movementId: number): Promise<void> {
+  await transaction(async (client) => {
+    const { rows } = await client.query<Movement>(
+      "SELECT * FROM movements WHERE warehouse = $1 AND id = $2 AND undone = 0",
+      [warehouse, movementId]
+    );
+    const movement = rows[0];
 
     if (!movement) throw new AppError("That change was already undone");
     if (movement.invoice_id) throw new AppError("Cancel the delivery note instead");
 
-    const product = getProduct(warehouse, movement.product_id);
+    const found = await client.query<Product>(
+      "SELECT * FROM products WHERE warehouse = $1 AND id = $2",
+      [warehouse, movement.product_id]
+    );
+    const product = found.rows[0];
     if (!product) throw new AppError("Product not found");
 
     const quantity = product.quantity - movement.change;
     if (quantity < 0) throw new AppError(`Cannot undo — only ${product.quantity} in stock now`);
 
-    db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+    await client.query("UPDATE products SET quantity = $1 WHERE warehouse = $2 AND id = $3", [
       quantity,
       warehouse,
-      movement.product_id
-    );
-    db().prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(movementId);
+      movement.product_id,
+    ]);
+    await client.query("UPDATE movements SET undone = 1 WHERE id = $1", [movementId]);
   });
-
-  undo();
 }
 
-/* ---------------------------------- invoices ---------------------------------- */
+/* ------------------------------ delivery notes ------------------------------ */
 
 /**
  * The number to offer for the next delivery note: the last one for this
@@ -219,15 +210,12 @@ export function undoMovement(warehouse: string, movementId: number): void {
  *
  * Per warehouse, like everything else here. A shared counter would leak how
  * busy the other side is through the gaps in your own numbers.
- *
- * Returns empty strings when there is nothing to go on: no notes yet, or a last
- * number that does not end in digits. Guessing at that point would be worse
- * than an empty box.
  */
-export function nextRef(warehouse: string): { next: string; from: string } {
-  const row = db()
-    .prepare("SELECT ref FROM invoices WHERE warehouse = ? ORDER BY id DESC LIMIT 1")
-    .get(warehouse) as { ref: string } | undefined;
+export async function nextRef(warehouse: string): Promise<{ next: string; from: string }> {
+  const row = await one<{ ref: string }>(
+    "SELECT ref FROM invoices WHERE warehouse = $1 ORDER BY id DESC LIMIT 1",
+    [warehouse]
+  );
 
   const from = row?.ref.trim() ?? "";
   const match = /^(.*?)(\d+)$/.exec(from);
@@ -246,36 +234,37 @@ export function nextRef(warehouse: string): { next: string; from: string } {
   return { next: prefix + next, from };
 }
 
-export function invoiceRefUsed(warehouse: string, ref: string): Invoice | null {
-  const row = db()
-    .prepare(
-      "SELECT * FROM invoices WHERE warehouse = ? AND lower(ref) = lower(?) ORDER BY id DESC LIMIT 1"
-    )
-    .get(warehouse, ref.trim()) as Invoice | undefined;
-  return row ?? null;
+export async function invoiceRefUsed(warehouse: string, ref: string): Promise<Invoice | null> {
+  return one<Invoice>(
+    "SELECT * FROM invoices WHERE warehouse = $1 AND lower(ref) = lower($2) ORDER BY id DESC LIMIT 1",
+    [warehouse, ref.trim()]
+  );
 }
 
-export function getInvoice(warehouse: string, id: number): Invoice | null {
-  const row = db()
-    .prepare("SELECT * FROM invoices WHERE warehouse = ? AND id = ?")
-    .get(warehouse, id) as Invoice | undefined;
-  return row ?? null;
+export async function getInvoice(warehouse: string, id: number): Promise<Invoice | null> {
+  return one<Invoice>("SELECT * FROM invoices WHERE warehouse = $1 AND id = $2", [warehouse, id]);
 }
 
-/** Create an invoice and reduce stock for every line — all or nothing. */
-export function createInvoice(
+/** Create a delivery note and reduce stock for every line — all or nothing. */
+export async function createInvoice(
   warehouse: string,
   input: { ref: string; customer: string; lines: InvoiceLine[] }
-): number {
+): Promise<number> {
   const ref = input.ref.trim();
   if (!ref) throw new AppError("Delivery note number is required");
   if (input.lines.length === 0) throw new AppError("Add at least one product");
 
-  const create = db().transaction(() => {
-    // Check every line before touching anything, so one error names all the problems.
+  return transaction(async (client) => {
+    // Check every line before touching anything, so one error names all the
+    // problems. FOR UPDATE holds the rows until commit, so two notes going out
+    // at once cannot both pass a check on the same last few units.
     const shortages: string[] = [];
     for (const line of input.lines) {
-      const product = getProduct(warehouse, line.productId);
+      const { rows } = await client.query<Product>(
+        "SELECT * FROM products WHERE warehouse = $1 AND id = $2 FOR UPDATE",
+        [warehouse, line.productId]
+      );
+      const product = rows[0];
       if (!product) throw new AppError("A product on this delivery note no longer exists");
       if (line.quantity <= 0) throw new AppError("Quantity must be at least 1");
       if (line.quantity > product.quantity) {
@@ -287,61 +276,57 @@ export function createInvoice(
       throw new AppError(`Not enough stock:\n${shortages.join("\n")}`);
     }
 
-    const invoiceId = Number(
-      db()
-        .prepare(
-          `INSERT INTO invoices (warehouse, ref, customer, status, created_at)
-           VALUES (?, ?, ?, 'active', ?)`
-        )
-        .run(warehouse, ref, input.customer.trim(), now()).lastInsertRowid
+    const created = await client.query<{ id: number }>(
+      `INSERT INTO invoices (warehouse, ref, customer, status, created_at)
+       VALUES ($1, $2, $3, 'active', $4) RETURNING id`,
+      [warehouse, ref, input.customer.trim(), now()]
     );
+    const invoiceId = created.rows[0].id;
 
     for (const line of input.lines) {
-      db().prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
-        line.quantity,
-        warehouse,
-        line.productId
+      await client.query(
+        "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
+        [line.quantity, warehouse, line.productId]
       );
-      logMovement(warehouse, line.productId, -line.quantity, "invoice", ref, invoiceId);
+      await logMovement(client, warehouse, line.productId, -line.quantity, "invoice", ref, invoiceId);
     }
 
     return invoiceId;
   });
-
-  return create();
 }
 
-/** Put every line's stock back. The invoice stays in history, marked cancelled. */
-export function cancelInvoice(warehouse: string, invoiceId: number): void {
-  const cancel = db().transaction(() => {
-    const invoice = getInvoice(warehouse, invoiceId);
+/** Put every line's stock back. The note stays in history, marked cancelled. */
+export async function cancelInvoice(warehouse: string, invoiceId: number): Promise<void> {
+  await transaction(async (client) => {
+    const found = await client.query<Invoice>(
+      "SELECT * FROM invoices WHERE warehouse = $1 AND id = $2 FOR UPDATE",
+      [warehouse, invoiceId]
+    );
+    const invoice = found.rows[0];
+
     if (!invoice) throw new AppError("Delivery note not found");
     if (invoice.status === "cancelled") throw new AppError("This delivery note is already cancelled");
 
-    const lines = db()
-      .prepare("SELECT * FROM movements WHERE warehouse = ? AND invoice_id = ? AND undone = 0")
-      .all(warehouse, invoiceId) as Movement[];
+    const { rows: lines } = await client.query<Movement>(
+      "SELECT * FROM movements WHERE warehouse = $1 AND invoice_id = $2 AND undone = 0",
+      [warehouse, invoiceId]
+    );
 
     for (const line of lines) {
       // line.change is negative, so subtracting it adds the stock back.
-      db().prepare("UPDATE products SET quantity = quantity - ? WHERE warehouse = ? AND id = ?").run(
-        line.change,
-        warehouse,
-        line.product_id
+      await client.query(
+        "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
+        [line.change, warehouse, line.product_id]
       );
-      db().prepare("UPDATE movements SET undone = 1 WHERE id = ?").run(line.id);
+      await client.query("UPDATE movements SET undone = 1 WHERE id = $1", [line.id]);
     }
 
-    db().prepare("UPDATE invoices SET status = 'cancelled', cancelled_at = ? WHERE id = ?").run(
-      now(),
-      invoiceId
+    await client.query(
+      "UPDATE invoices SET status = 'cancelled', cancelled_at = $1 WHERE id = $2",
+      [now(), invoiceId]
     );
   });
-
-  cancel();
 }
-
-/* ------------------------------ invoices: stored ------------------------------ */
 
 export interface MovementRow extends Movement {
   product_name: string;
@@ -356,57 +341,54 @@ export interface InvoiceSummary extends Invoice {
   units: number;
 }
 
-/** Every invoice ever raised, newest first. Searchable by number or customer. */
-export function listInvoices(
+/** Every delivery note ever raised, newest first. Searchable by number or customer. */
+export async function listInvoices(
   warehouse: string,
   options: { search?: string; limit?: number; offset?: number } = {}
-): InvoiceSummary[] {
+): Promise<InvoiceSummary[]> {
   const search = (options.search ?? "").trim().toLowerCase();
-  const term = `%${search}%`;
 
-  return db()
-    .prepare(
-      `SELECT i.*,
-              (SELECT count(*) FROM movements m WHERE m.invoice_id = i.id) AS lines,
-              (SELECT COALESCE(sum(abs(m.change)), 0) FROM movements m WHERE m.invoice_id = i.id) AS units
-       FROM invoices i
-       WHERE i.warehouse = ?
-         AND (? = '' OR lower(i.ref) LIKE ? OR lower(i.customer) LIKE ?)
-       ORDER BY i.created_at DESC, i.id DESC
-       LIMIT ? OFFSET ?`
-    )
-    .all(warehouse, search, term, term, options.limit ?? 50, options.offset ?? 0) as InvoiceSummary[];
+  const rows = await query<InvoiceSummary>(
+    `SELECT i.*,
+            (SELECT count(*) FROM movements m WHERE m.invoice_id = i.id) AS lines,
+            (SELECT COALESCE(sum(abs(m.change)), 0) FROM movements m WHERE m.invoice_id = i.id) AS units
+     FROM invoices i
+     WHERE i.warehouse = $1
+       AND ($2 = '' OR lower(i.ref) LIKE $3 OR lower(i.customer) LIKE $3)
+     ORDER BY i.created_at DESC, i.id DESC
+     LIMIT $4 OFFSET $5`,
+    [warehouse, search, `%${search}%`, options.limit ?? 50, options.offset ?? 0]
+  );
+
+  return rows.map((row) => ({ ...row, lines: int(row.lines), units: int(row.units) }));
 }
 
-export function countInvoices(warehouse: string, search = ""): number {
+export async function countInvoices(warehouse: string, search = ""): Promise<number> {
   const trimmed = search.trim().toLowerCase();
-  const term = `%${trimmed}%`;
-  const row = db()
-    .prepare(
-      `SELECT count(*) AS n FROM invoices
-       WHERE warehouse = ? AND (? = '' OR lower(ref) LIKE ? OR lower(customer) LIKE ?)`
-    )
-    .get(warehouse, trimmed, term, term) as { n: number };
-  return row.n;
+  const row = await one<{ n: string }>(
+    `SELECT count(*) AS n FROM invoices
+     WHERE warehouse = $1 AND ($2 = '' OR lower(ref) LIKE $3 OR lower(customer) LIKE $3)`,
+    [warehouse, trimmed, `%${trimmed}%`]
+  );
+  return int(row?.n);
 }
 
-/** One invoice with every line on it, including lines whose product was later hidden. */
-export function getInvoiceWithLines(
+/** One note with every line on it, including lines whose product was later hidden. */
+export async function getInvoiceWithLines(
   warehouse: string,
   id: number
-): { invoice: Invoice; lines: MovementRow[]; units: number } | null {
-  const invoice = getInvoice(warehouse, id);
+): Promise<{ invoice: Invoice; lines: MovementRow[]; units: number } | null> {
+  const invoice = await getInvoice(warehouse, id);
   if (!invoice) return null;
 
-  const lines = db()
-    .prepare(
-      `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
-              NULL AS invoice_ref, NULL AS invoice_status
-       FROM movements m JOIN products p ON p.id = m.product_id
-       WHERE m.warehouse = ? AND m.invoice_id = ?
-       ORDER BY m.id`
-    )
-    .all(warehouse, id) as MovementRow[];
+  const lines = await query<MovementRow>(
+    `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
+            NULL AS invoice_ref, NULL AS invoice_status
+     FROM movements m JOIN products p ON p.id = m.product_id
+     WHERE m.warehouse = $1 AND m.invoice_id = $2
+     ORDER BY m.id`,
+    [warehouse, id]
+  );
 
   return {
     invoice,
@@ -418,32 +400,31 @@ export function getInvoiceWithLines(
 /* ---------------------------------- history ---------------------------------- */
 
 /**
- * The full movement log, newest first, one row per change. Invoice lines carry
- * their invoice number so History can link across to the stored invoice.
+ * The full movement log, newest first, one row per change. Note lines carry
+ * their note number so History can link across to the stored document.
  */
-export function listMovements(
+export async function listMovements(
   warehouse: string,
   options: { limit?: number; offset?: number } = {}
-): MovementRow[] {
-  return db()
-    .prepare(
-      `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
-              i.ref AS invoice_ref, i.status AS invoice_status
-       FROM movements m
-       JOIN products p ON p.id = m.product_id
-       LEFT JOIN invoices i ON i.id = m.invoice_id
-       WHERE m.warehouse = ?
-       ORDER BY m.created_at DESC, m.id DESC
-       LIMIT ? OFFSET ?`
-    )
-    .all(warehouse, options.limit ?? 100, options.offset ?? 0) as MovementRow[];
+): Promise<MovementRow[]> {
+  return query<MovementRow>(
+    `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
+            i.ref AS invoice_ref, i.status AS invoice_status
+     FROM movements m
+     JOIN products p ON p.id = m.product_id
+     LEFT JOIN invoices i ON i.id = m.invoice_id
+     WHERE m.warehouse = $1
+     ORDER BY m.created_at DESC, m.id DESC
+     LIMIT $2 OFFSET $3`,
+    [warehouse, options.limit ?? 100, options.offset ?? 0]
+  );
 }
 
-export function countMovements(warehouse: string): number {
-  const row = db()
-    .prepare("SELECT count(*) AS n FROM movements WHERE warehouse = ?")
-    .get(warehouse) as { n: number };
-  return row.n;
+export async function countMovements(warehouse: string): Promise<number> {
+  const row = await one<{ n: string }>("SELECT count(*) AS n FROM movements WHERE warehouse = $1", [
+    warehouse,
+  ]);
+  return int(row?.n);
 }
 
 /* ---------------------------------- import ---------------------------------- */
@@ -467,33 +448,42 @@ export interface PlannedRow extends ImportCandidate {
  * Works out what an import would do without touching anything, so the preview
  * shows the real outcome before a single row is written.
  */
-export function planImport(
+export async function planImport(
   warehouse: string,
   rows: ImportCandidate[],
   options: { hasQuantity: boolean; hasLowStock: boolean }
-): PlannedRow[] {
-  const find = db().prepare(
-    `SELECT id, quantity, low_stock_at FROM products
-     WHERE warehouse = ? AND lower(brand) = lower(?) AND lower(name) = lower(?) AND lower(flavor) = lower(?)`
+): Promise<PlannedRow[]> {
+  // One query for the lot: 600 round trips to plan a 600-row import would make
+  // the preview feel broken.
+  const existing = await query<{
+    id: number;
+    brand: string;
+    name: string;
+    flavor: string;
+    quantity: number;
+    low_stock_at: number;
+  }>(
+    "SELECT id, brand, name, flavor, quantity, low_stock_at FROM products WHERE warehouse = $1",
+    [warehouse]
   );
 
-  return rows.map((row) => {
-    const existing = find.get(warehouse, row.brand, row.name, row.flavor) as
-      | { id: number; quantity: number; low_stock_at: number }
-      | undefined;
+  const key = (brand: string, name: string, flavor: string) =>
+    `${brand.toLowerCase()}|${name.toLowerCase()}|${flavor.toLowerCase()}`;
 
-    if (!existing) {
-      return { ...row, action: "add", existingId: null, currentQuantity: null };
-    }
+  const byKey = new Map(existing.map((p) => [key(p.brand, p.name, p.flavor), p]));
 
-    const quantityChanges = options.hasQuantity && row.quantity !== existing.quantity;
-    const lowChanges = options.hasLowStock && row.lowStockAt !== existing.low_stock_at;
+  return rows.map((row): PlannedRow => {
+    const match = byKey.get(key(row.brand, row.name, row.flavor));
+    if (!match) return { ...row, action: "add", existingId: null, currentQuantity: null };
+
+    const quantityChanges = options.hasQuantity && row.quantity !== match.quantity;
+    const lowChanges = options.hasLowStock && row.lowStockAt !== match.low_stock_at;
 
     return {
       ...row,
       action: quantityChanges || lowChanges ? "update" : "same",
-      existingId: existing.id,
-      currentQuantity: existing.quantity,
+      existingId: match.id,
+      currentQuantity: match.quantity,
     };
   });
 }
@@ -503,29 +493,28 @@ export function planImport(
  * left alone on products that already exist — re-importing a catalogue with no
  * quantity column must never wipe the stock figures.
  */
-export function applyImport(
+export async function applyImport(
   warehouse: string,
   rows: PlannedRow[],
   options: { hasQuantity: boolean; hasLowStock: boolean }
-): { added: number; updated: number } {
-  let added = 0;
-  let updated = 0;
+): Promise<{ added: number; updated: number }> {
+  return transaction(async (client) => {
+    let added = 0;
+    let updated = 0;
 
-  const run = db().transaction(() => {
     for (const row of rows) {
       if (row.action === "same") continue;
 
       if (row.action === "add") {
-        const id = Number(
-          db()
-            .prepare(
-              `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`
-            )
-            .run(warehouse, row.brand, row.name, row.flavor, row.quantity, row.lowStockAt, now())
-            .lastInsertRowid
+        const { rows: created } = await client.query<{ id: number }>(
+          `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [warehouse, row.brand, row.name, row.flavor, row.quantity, row.lowStockAt, now()]
         );
-        if (row.quantity !== 0) logMovement(warehouse, id, row.quantity, "new", "Excel import");
+        const id = created[0].id;
+        if (row.quantity !== 0) {
+          await logMovement(client, warehouse, id, row.quantity, "new", "Excel import");
+        }
         added++;
         continue;
       }
@@ -533,20 +522,21 @@ export function applyImport(
       if (!row.existingId) continue;
 
       if (options.hasLowStock) {
-        db().prepare("UPDATE products SET low_stock_at = ? WHERE warehouse = ? AND id = ?").run(
+        await client.query("UPDATE products SET low_stock_at = $1 WHERE warehouse = $2 AND id = $3", [
           row.lowStockAt,
           warehouse,
-          row.existingId
-        );
+          row.existingId,
+        ]);
       }
 
       if (options.hasQuantity && row.currentQuantity !== null && row.quantity !== row.currentQuantity) {
-        db().prepare("UPDATE products SET quantity = ? WHERE warehouse = ? AND id = ?").run(
+        await client.query("UPDATE products SET quantity = $1 WHERE warehouse = $2 AND id = $3", [
           row.quantity,
           warehouse,
-          row.existingId
-        );
-        logMovement(
+          row.existingId,
+        ]);
+        await logMovement(
+          client,
           warehouse,
           row.existingId,
           row.quantity - row.currentQuantity,
@@ -557,8 +547,7 @@ export function applyImport(
 
       updated++;
     }
-  });
 
-  run();
-  return { added, updated };
+    return { added, updated };
+  });
 }
