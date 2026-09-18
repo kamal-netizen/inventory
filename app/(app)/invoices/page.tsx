@@ -6,11 +6,13 @@ export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
   const warehouse = await requireWarehouse();
+  const first = await listInvoices(warehouse.key);
   return (
     <div className="md:max-w-3xl">
       <h1 className="mb-4 text-[19px] font-semibold md:text-[22px]">Delivery notes</h1>
       <InvoiceList
-        initial={await listInvoices(warehouse.key, { limit: 50 })}
+        initial={first.rows}
+        hasMore={first.hasMore}
         total={await countInvoices(warehouse.key)}
       />
     </div>

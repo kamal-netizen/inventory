@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { attemptLogin, endSession, requireWarehouse } from "@/lib/auth";
 import * as q from "@/lib/queries";
-import type { InvoiceLine } from "@/lib/types";
+import type { Cursor, InvoiceLine } from "@/lib/types";
 
 export type Result<T = unknown> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -126,36 +126,40 @@ export async function createInvoiceAction(input: {
   }
 }
 
-const PAGE = 50;
-
-/** Paging for the stored-invoice list. */
+/**
+ * Paging for the stored-invoice list.
+ *
+ * `after` is the last row already on screen, or null to start again — which is
+ * what a changed search term does, since it is a different list.
+ */
 export async function loadInvoicesAction(
   search: string,
-  offset: number
-): Promise<Result<{ invoices: q.InvoiceSummary[]; total: number }>> {
+  after: Cursor | null
+): Promise<Result<{ invoices: q.InvoiceSummary[]; hasMore: boolean; total: number | null }>> {
   try {
     const warehouse = await requireWarehouse();
+    const page = await q.listInvoices(warehouse.key, { search, after });
     return {
       ok: true,
-      invoices: await q.listInvoices(warehouse.key, { search, limit: PAGE, offset: Math.max(0, offset) }),
-      total: await q.countInvoices(warehouse.key, search),
+      invoices: page.rows,
+      hasMore: page.hasMore,
+      // Only a fresh list needs counting. Paging cannot change the total, and
+      // recounting on every page is what let the button disagree with the rows.
+      total: after ? null : await q.countInvoices(warehouse.key, search),
     };
   } catch (err) {
     return fail(err);
   }
 }
 
-/** Paging for the movement log. */
+/** Paging for the movement log. It has no search, so the total never moves. */
 export async function loadHistoryAction(
-  offset: number
-): Promise<Result<{ movements: q.MovementRow[]; total: number }>> {
+  after: Cursor
+): Promise<Result<{ movements: q.MovementRow[]; hasMore: boolean }>> {
   try {
     const warehouse = await requireWarehouse();
-    return {
-      ok: true,
-      movements: await q.listMovements(warehouse.key, { limit: PAGE, offset: Math.max(0, offset) }),
-      total: await q.countMovements(warehouse.key),
-    };
+    const page = await q.listMovements(warehouse.key, { after });
+    return { ok: true, movements: page.rows, hasMore: page.hasMore };
   } catch (err) {
     return fail(err);
   }

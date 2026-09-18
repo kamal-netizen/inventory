@@ -7,8 +7,7 @@ import { loadHistoryAction, undoMovementAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
 import { dayKey, formatFullDate, formatTime, productLabel } from "@/lib/format";
 import type { MovementRow } from "@/lib/queries";
-
-const PAGE = 50;
+import { PAGE } from "@/lib/types";
 
 const REASON_LABEL: Record<string, string> = {
   new: "Added to list",
@@ -20,23 +19,35 @@ const REASON_LABEL: Record<string, string> = {
 
 export default function HistoryList({
   initial,
-  total: initialTotal,
+  hasMore: initialHasMore,
+  total,
 }: {
   initial: MovementRow[];
+  hasMore: boolean;
   total: number;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [movements, setMovements] = useState(initial);
-  const [total, setTotal] = useState(initialTotal);
+  const [hasMore, setHasMore] = useState(initialHasMore);
   const [pending, startTransition] = useTransition();
 
+  /**
+   * Asks for what follows the last row on screen, rather than for an offset.
+   *
+   * Every stock change writes a movement, including one made on another device,
+   * so the list can grow at the head between render and this click. An offset
+   * would then hand back a row already above it — the same id twice, and two
+   * Undo buttons for one movement. A cursor cannot drift that way.
+   */
   function loadMore() {
+    const last = movements[movements.length - 1];
+    if (!last) return;
     startTransition(async () => {
-      const result = await loadHistoryAction(movements.length);
+      const result = await loadHistoryAction({ created_at: last.created_at, id: last.id });
       if (result.ok) {
         setMovements((current) => [...current, ...result.movements]);
-        setTotal(result.total);
+        setHasMore(result.hasMore);
       } else {
         toast({ message: result.error, tone: "error" });
       }
@@ -75,6 +86,11 @@ export default function HistoryList({
     if (last?.key === key) last.rows.push(row);
     else days.push({ key, at: row.created_at, rows: [row] });
   }
+
+  // The count came with the page and only labels the button; whether there is
+  // another page is hasMore, which the server observed. If rows arrived since,
+  // the label says "Show more" rather than claiming a number it cannot know.
+  const remaining = Math.max(0, total - movements.length);
 
   return (
     <>
@@ -156,7 +172,7 @@ export default function HistoryList({
         </section>
       ))}
 
-      {movements.length < total && (
+      {hasMore && (
         <button
           type="button"
           onClick={loadMore}
@@ -164,7 +180,11 @@ export default function HistoryList({
           className="tap mt-1 w-full rounded-2xl border border-line bg-surface font-semibold
                      transition hover:border-brand hover:text-brand disabled:opacity-60"
         >
-          {pending ? "Loading…" : `Show ${Math.min(PAGE, total - movements.length)} more`}
+          {pending
+            ? "Loading…"
+            : remaining > 0
+              ? `Show ${Math.min(PAGE, remaining)} more`
+              : "Show more"}
         </button>
       )}
     </>

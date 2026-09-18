@@ -5,18 +5,20 @@ import Link from "next/link";
 import { loadInvoicesAction } from "@/app/actions";
 import { formatDay, formatTime } from "@/lib/format";
 import type { InvoiceSummary } from "@/lib/queries";
-
-const PAGE = 50;
+import { PAGE } from "@/lib/types";
 
 export default function InvoiceList({
   initial,
+  hasMore: initialHasMore,
   total: initialTotal,
 }: {
   initial: InvoiceSummary[];
+  hasMore: boolean;
   total: number;
 }) {
   const [search, setSearch] = useState("");
   const [invoices, setInvoices] = useState(initial);
+  const [hasMore, setHasMore] = useState(initialHasMore);
   const [total, setTotal] = useState(initialTotal);
   const [pending, startTransition] = useTransition();
   const firstRender = useRef(true);
@@ -30,25 +32,36 @@ export default function InvoiceList({
     }
     const timer = setTimeout(() => {
       startTransition(async () => {
-        const result = await loadInvoicesAction(search, 0);
+        // A changed term is a different list, so this starts from no cursor and
+        // is the one call that recounts.
+        const result = await loadInvoicesAction(search, null);
         if (result.ok) {
           setInvoices(result.invoices);
-          setTotal(result.total);
+          setHasMore(result.hasMore);
+          if (result.total !== null) setTotal(result.total);
         }
       });
     }, 250);
     return () => clearTimeout(timer);
   }, [search]);
 
+  /** Asks for what follows the last note on screen — see HistoryList.loadMore. */
   function loadMore() {
+    const last = invoices[invoices.length - 1];
+    if (!last) return;
     startTransition(async () => {
-      const result = await loadInvoicesAction(search, invoices.length);
+      const result = await loadInvoicesAction(search, {
+        created_at: last.created_at,
+        id: last.id,
+      });
       if (result.ok) {
         setInvoices((current) => [...current, ...result.invoices]);
-        setTotal(result.total);
+        setHasMore(result.hasMore);
       }
     });
   }
+
+  const remaining = Math.max(0, total - invoices.length);
 
   return (
     <>
@@ -161,7 +174,7 @@ export default function InvoiceList({
         </ul>
       )}
 
-      {invoices.length < total && (
+      {hasMore && (
         <button
           type="button"
           onClick={loadMore}
@@ -169,7 +182,11 @@ export default function InvoiceList({
           className="tap mt-3 w-full rounded-2xl border border-line bg-surface font-semibold
                      transition hover:border-brand hover:text-brand disabled:opacity-60"
         >
-          {pending ? "Loading…" : `Show ${Math.min(PAGE, total - invoices.length)} more`}
+          {pending
+            ? "Loading…"
+            : remaining > 0
+              ? `Show ${Math.min(PAGE, remaining)} more`
+              : "Show more"}
         </button>
       )}
     </>

@@ -1,7 +1,18 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { now, one, query, transaction } from "./db";
-import type { Invoice, InvoiceLine, Movement, Product, Reason } from "./types";
+import { PAGE, type Cursor, type Invoice, type InvoiceLine, type Movement, type Page, type Product, type Reason } from "./types";
+
+/**
+ * The WHERE fragment that walks a (created_at DESC, id DESC) list.
+ *
+ * Postgres compares row values left to right, so this is one expression rather
+ * than the created_at < x OR (created_at = x AND id < y) it replaces. When there
+ * is no cursor both parameters are null, the first test is true and the whole
+ * clause falls away — so the first page and every page after it run one query.
+ */
+const AFTER = (ts: string, id: string, col: string) =>
+  `(${ts}::text IS NULL OR (${col}.created_at, ${col}.id) < (${ts}::text, ${id}::int))`;
 
 /**
  * Every function here takes the warehouse key as its first argument and filters
@@ -344,10 +355,13 @@ export interface InvoiceSummary extends Invoice {
 /** Every delivery note ever raised, newest first. Searchable by number or customer. */
 export async function listInvoices(
   warehouse: string,
-  options: { search?: string; limit?: number; offset?: number } = {}
-): Promise<InvoiceSummary[]> {
+  options: { search?: string; limit?: number; after?: Cursor | null } = {}
+): Promise<Page<InvoiceSummary>> {
   const search = (options.search ?? "").trim().toLowerCase();
+  const limit = options.limit ?? PAGE;
+  const after = options.after ?? null;
 
+  // One row past the page, so hasMore is observed rather than counted.
   const rows = await query<InvoiceSummary>(
     `SELECT i.*,
             (SELECT count(*) FROM movements m WHERE m.invoice_id = i.id) AS lines,
@@ -355,12 +369,18 @@ export async function listInvoices(
      FROM invoices i
      WHERE i.warehouse = $1
        AND ($2 = '' OR lower(i.ref) LIKE $3 OR lower(i.customer) LIKE $3)
+       AND ${AFTER('$4', '$5', 'i')}
      ORDER BY i.created_at DESC, i.id DESC
-     LIMIT $4 OFFSET $5`,
-    [warehouse, search, `%${search}%`, options.limit ?? 50, options.offset ?? 0]
+     LIMIT $6`,
+    [warehouse, search, `%${search}%`, after?.created_at ?? null, after?.id ?? null, limit + 1]
   );
 
-  return rows.map((row) => ({ ...row, lines: int(row.lines), units: int(row.units) }));
+  return {
+    rows: rows
+      .slice(0, limit)
+      .map((row) => ({ ...row, lines: int(row.lines), units: int(row.units) })),
+    hasMore: rows.length > limit,
+  };
 }
 
 export async function countInvoices(warehouse: string, search = ""): Promise<number> {
@@ -405,19 +425,26 @@ export async function getInvoiceWithLines(
  */
 export async function listMovements(
   warehouse: string,
-  options: { limit?: number; offset?: number } = {}
-): Promise<MovementRow[]> {
-  return query<MovementRow>(
+  options: { limit?: number; after?: Cursor | null } = {}
+): Promise<Page<MovementRow>> {
+  const limit = options.limit ?? PAGE;
+  const after = options.after ?? null;
+
+  // One row past the page, so hasMore is observed rather than counted.
+  const rows = await query<MovementRow>(
     `SELECT m.*, p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
             i.ref AS invoice_ref, i.status AS invoice_status
      FROM movements m
      JOIN products p ON p.id = m.product_id
      LEFT JOIN invoices i ON i.id = m.invoice_id
      WHERE m.warehouse = $1
+       AND ${AFTER('$2', '$3', 'm')}
      ORDER BY m.created_at DESC, m.id DESC
-     LIMIT $2 OFFSET $3`,
-    [warehouse, options.limit ?? 100, options.offset ?? 0]
+     LIMIT $4`,
+    [warehouse, after?.created_at ?? null, after?.id ?? null, limit + 1]
   );
+
+  return { rows: rows.slice(0, limit), hasMore: rows.length > limit };
 }
 
 export async function countMovements(warehouse: string): Promise<number> {

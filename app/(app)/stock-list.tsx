@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Product } from "@/lib/types";
+import { PAGE, type Product } from "@/lib/types";
 
 type Status = "all" | "in" | "low" | "out";
 
-/** Same step as Delivery notes and History, so the button means one thing. */
-const PAGE = 50;
 
 const isLow = (p: Product) => p.low_stock_at > 0 && p.quantity <= p.low_stock_at;
 
