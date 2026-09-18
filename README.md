@@ -112,6 +112,14 @@ PostgreSQL, reached through `DATABASE_URL`. In production the deployment platfor
 injects it, which requires the project's database to allow direct connections —
 without that the app has no database to talk to and will not start.
 
+Direct access is chosen when the database is created and cannot be changed after.
+There is no toggle for it in the dashboard once the database exists, and no API
+route behind one, so turning it on means deleting the database and creating it
+again. Setting `DATABASE_URL` by hand instead does not work: the flag is also what
+attaches the app container to the network the database sits on, so without it the
+hostname does not resolve at all. A deploy that fails its health check on a
+missing or unreachable `DATABASE_URL` is usually this, not a mistyped variable.
+
 This was SQLite in a file until the app moved onto a platform that rebuilds the
 container on every deploy. The file lived inside the container, so every deploy
 threw it away along with everything in it. That is the whole reason for Postgres:

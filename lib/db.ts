@@ -86,7 +86,10 @@ function connect(): Pool {
   if (!connectionString) {
     throw new Error(
       "DATABASE_URL is missing. Locally it goes in .env; in production the " +
-        "platform injects it once the project's database allows direct access."
+        "platform injects it, but only into a container whose database was " +
+        "created with direct access switched on. That is decided when the " +
+        "database is provisioned and cannot be turned on afterwards, so the " +
+        "fix is usually to recreate the database, not to set this variable."
     );
   }
 
