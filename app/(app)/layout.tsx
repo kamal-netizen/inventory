@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { getWarehouse } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BottomNav, SideNav } from "@/components/nav";
@@ -6,6 +7,18 @@ import LogoutButton from "@/components/logout-button";
 import { ToastProvider } from "@/components/toast";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
+  /**
+   * Wait for a real request before anything below runs.
+   *
+   * `next build` prerenders every route it can, and a prerender has no request
+   * and no DATABASE_URL — so the probe below would throw and fail the build.
+   * Pages that read data escape prerendering on their own, by reading cookies
+   * or by exporting `dynamic`, but a page of pure markup like /products/import
+   * has nothing to escape with. The requirement belongs to this layout, not to
+   * each page under it, so this is where it is stated.
+   */
+  await connection();
+
   /**
    * Prove the database is there before anything else, including the redirect.
    *
