@@ -81,14 +81,23 @@ function Icon({ paths, active }: { paths: React.ReactNode; active: boolean }) {
 }
 
 /** Desktop: a fixed sidebar. Hidden on phones. */
-export function SideNav({ warehouseName }: { warehouseName: string }) {
+export function SideNav({ warehouseName, logo }: { warehouseName: string; logo?: string }) {
   const pathname = usePathname();
 
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-line bg-surface px-3 py-5 md:flex">
-      <div className="mb-6 px-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Warehouse</p>
-        <p className="mt-1 text-[19px] font-semibold leading-tight">{warehouseName}</p>
+      <div className="mb-6 flex items-center gap-3 px-3">
+        {logo && (
+          // Decorative: the name beside it already identifies the warehouse.
+          // 40px because both marks are detailed rather than icon-shaped — the
+          // Muscle Fusion emblem is unreadable much below this.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logo} alt="" className="h-10 w-10 shrink-0 object-contain" />
+        )}
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Warehouse</p>
+          <p className="mt-0.5 text-[17px] font-semibold leading-tight">{warehouseName}</p>
+        </div>
       </div>
 
       <nav className="flex flex-col gap-1">

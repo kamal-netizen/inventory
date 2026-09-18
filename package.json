@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "unlock": "node scripts/unlock.mjs"
+    "unlock": "node scripts/unlock.mjs",
+    "logos": "node scripts/logo-png.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

@@ -13,13 +13,21 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <ToastProvider>
       <div className="flex">
-        <SideNav warehouseName={warehouse.name} />
+        <SideNav warehouseName={warehouse.name} logo={warehouse.logo} />
 
         <div className="min-w-0 flex-1">
           {/* Phones get a title bar instead of the sidebar. */}
           <header className="sticky top-0 z-30 border-b border-line bg-surface md:hidden">
-            <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
-              <span className="truncate text-[17px] font-semibold">{warehouse.name}</span>
+            <div className="mx-auto flex max-w-md items-center gap-2.5 px-4 py-3">
+              {warehouse.logo && (
+                // Decorative: the name beside it already says which warehouse
+                // this is, so a screen reader announcing it twice adds nothing.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={warehouse.logo} alt="" className="h-8 w-8 shrink-0 object-contain" />
+              )}
+              <span className="min-w-0 flex-1 truncate text-[17px] font-semibold">
+                {warehouse.name}
+              </span>
               <LogoutButton />
             </div>
           </header>

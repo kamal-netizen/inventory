@@ -7,6 +7,8 @@ export interface Warehouse {
   key: string;
   name: string;
   pin: string;
+  /** Web path to the logo, e.g. "/jnk-logo.svg". Empty when there is none. */
+  logo: string;
 }
 
 function loadWarehouses(): Warehouse[] {
@@ -29,7 +31,13 @@ function loadWarehouses(): Warehouse[] {
     if (!name) {
       throw new Error(`NAME_${key} is missing from .env`);
     }
-    return { key, name, pin };
+
+    // Optional, and deliberately not validated beyond a leading slash: a broken
+    // path shows as a missing image, which is a far better failure than a
+    // warehouse nobody can sign in to.
+    const logo = (process.env[`LOGO_${key}`] ?? "").trim();
+
+    return { key, name, pin, logo: logo.startsWith("/") ? logo : "" };
   });
 
   const pins = new Set(warehouses.map((w) => w.pin));

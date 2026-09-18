@@ -15,6 +15,7 @@ export async function GET(_request: Request, context: RouteContext<"/api/invoice
     invoice: found.invoice,
     lines: found.lines,
     units: found.units,
+    logo: warehouse.logo,
   });
 
   // [warehouse] [SO no] [date] — e.g. "Muscle Fusion 46984 17-09-2026.pdf"
