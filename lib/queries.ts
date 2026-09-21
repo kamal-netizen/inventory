@@ -52,8 +52,15 @@ export async function getProduct(warehouse: string, id: number): Promise<Product
 /** Distinct brands already in use, for the brand picker on the product form. */
 export async function listBrands(warehouse: string): Promise<string[]> {
   const rows = await query<{ brand: string }>(
-    `SELECT DISTINCT brand FROM products
+    // GROUP BY rather than DISTINCT, and not a matter of taste: Postgres
+    // requires every ORDER BY expression of a SELECT DISTINCT to appear in the
+    // select list, so ordering by lower(brand) while selecting brand is a
+    // 42P10. SQLite allowed it, which is why it survived the move and only
+    // broke once a warehouse had brands to list. Grouping states the same
+    // intent and lets the sort use an expression over the grouped column.
+    `SELECT brand FROM products
      WHERE warehouse = $1 AND hidden = 0 AND brand <> ''
+     GROUP BY brand
      ORDER BY lower(brand)`,
     [warehouse]
   );
