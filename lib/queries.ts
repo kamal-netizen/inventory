@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import type { PoolClient } from "pg";
 import { now, one, query, transaction } from "./db";
 import { PAGE, type Cursor, type Invoice, type InvoiceLine, type Movement, type Page, type Product, type Reason } from "./types";
@@ -45,9 +46,17 @@ export async function listProducts(warehouse: string, search = ""): Promise<Prod
   );
 }
 
-export async function getProduct(warehouse: string, id: number): Promise<Product | null> {
-  return one<Product>("SELECT * FROM products WHERE warehouse = $1 AND id = $2", [warehouse, id]);
-}
+/**
+ * Memoised for the length of one request.
+ *
+ * generateMetadata and the page it titles both need this row, and nothing else
+ * in this project caches anything — without cache() the same SELECT would run
+ * twice for every view of the product form.
+ */
+export const getProduct = cache(
+  async (warehouse: string, id: number): Promise<Product | null> =>
+    one<Product>("SELECT * FROM products WHERE warehouse = $1 AND id = $2", [warehouse, id])
+);
 
 /** Distinct brands already in use, for the brand picker on the product form. */
 export async function listBrands(warehouse: string): Promise<string[]> {
@@ -259,9 +268,16 @@ export async function invoiceRefUsed(warehouse: string, ref: string): Promise<In
   );
 }
 
-export async function getInvoice(warehouse: string, id: number): Promise<Invoice | null> {
-  return one<Invoice>("SELECT * FROM invoices WHERE warehouse = $1 AND id = $2", [warehouse, id]);
-}
+/**
+ * Memoised per request, like getProduct.
+ *
+ * getInvoiceWithLines calls this too, so the note's title and the note itself
+ * come from one round trip even though they are fetched by different code.
+ */
+export const getInvoice = cache(
+  async (warehouse: string, id: number): Promise<Invoice | null> =>
+    one<Invoice>("SELECT * FROM invoices WHERE warehouse = $1 AND id = $2", [warehouse, id])
+);
 
 /** Create a delivery note and reduce stock for every line — all or nothing. */
 export async function createInvoice(

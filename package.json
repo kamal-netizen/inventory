@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "unlock": "node scripts/unlock.mjs",
-    "logos": "node scripts/logo-png.mjs"
+    "logos": "node scripts/logo-png.mjs",
+    "icons": "node scripts/icons.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

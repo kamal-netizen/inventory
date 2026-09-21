@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { requireWarehouse } from "@/lib/auth";
 import { countInvoices, listInvoices } from "@/lib/queries";
 import InvoiceList from "./invoice-list";
+
+export const metadata: Metadata = { title: "Delivery notes" };
 
 export const dynamic = "force-dynamic";
 

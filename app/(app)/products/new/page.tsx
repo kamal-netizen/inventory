@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import PageHeader from "@/components/page-header";
 import ProductForm from "@/components/product-form";
 import { requireWarehouse } from "@/lib/auth";
 import { listBrands } from "@/lib/queries";
+
+export const metadata: Metadata = { title: "Add product" };
 
 export const dynamic = "force-dynamic";
 

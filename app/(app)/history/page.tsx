@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { requireWarehouse } from "@/lib/auth";
 import { countMovements, listMovements } from "@/lib/queries";
 import HistoryList from "./history-list";
+
+export const metadata: Metadata = { title: "History" };
 
 export const dynamic = "force-dynamic";
 

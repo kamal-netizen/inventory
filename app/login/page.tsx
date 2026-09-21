@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getWarehouse, lockedFor } from "@/lib/auth";
 import { pinLength } from "@/lib/config";
 import Keypad from "./keypad";
+
+export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage() {
   if (await getWarehouse()) redirect("/");
