@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { dayKey, formatExpiry } from "@/lib/format";
 import { PAGE, type Product } from "@/lib/types";
 
 type Status = "all" | "in" | "low" | "out";
@@ -47,10 +48,15 @@ export default function StockList({ products }: { products: Product[] }) {
       return (
         product.name.toLowerCase().includes(term) ||
         product.flavor.toLowerCase().includes(term) ||
-        product.brand.toLowerCase().includes(term)
+        product.brand.toLowerCase().includes(term) ||
+        product.batch_no.toLowerCase().includes(term)
       );
     });
   }, [inBrand, search, status]);
+
+  // Today in the app's timezone, as YYYY-MM-DD, to compare with expiry as text.
+  // The fixed timezone keeps the server render and the browser in agreement.
+  const today = dayKey(new Date().toISOString());
 
   const filtered = Boolean(brand) || status !== "all" || Boolean(search.trim());
 
@@ -279,6 +285,18 @@ export default function StockList({ products }: { products: Product[] }) {
                         {product.flavor && (
                           <span className="mt-0.5 block truncate text-[14px] text-muted">
                             {product.flavor}
+                          </span>
+                        )}
+                        {(product.batch_no || product.expiry) && (
+                          <span className="mt-0.5 block truncate text-[13px] text-muted">
+                            {product.batch_no && `Batch ${product.batch_no}`}
+                            {product.batch_no && product.expiry && " · "}
+                            {product.expiry && (
+                              <span className={product.expiry < today ? "font-medium text-danger" : undefined}>
+                                {product.expiry < today ? "Expired " : "Exp "}
+                                {formatExpiry(product.expiry)}
+                              </span>
+                            )}
                           </span>
                         )}
                       </span>

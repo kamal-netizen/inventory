@@ -33,6 +33,8 @@ export default function ProductForm({
   const [lowStockAt, setLowStockAt] = useState(
     product?.low_stock_at ? String(product.low_stock_at) : ""
   );
+  const [batchNo, setBatchNo] = useState(product?.batch_no ?? "");
+  const [expiry, setExpiry] = useState(product?.expiry ?? "");
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -67,6 +69,8 @@ export default function ProductForm({
             flavor,
             quantity: newQuantity,
             lowStockAt: Number(lowStockAt || 0),
+            batchNo,
+            expiry,
           })
         : await createProductAction({
             brand,
@@ -74,6 +78,8 @@ export default function ProductForm({
             flavor,
             quantity: newQuantity,
             lowStockAt: Number(lowStockAt || 0),
+            batchNo,
+            expiry,
           });
 
       if (!result.ok) {
@@ -209,6 +215,24 @@ export default function ProductForm({
         numeric
       />
 
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field
+          label="Batch number"
+          hint="Optional"
+          value={batchNo}
+          onChange={setBatchNo}
+          placeholder="B2409-17"
+        />
+
+        <Field
+          label="Expiry date"
+          hint="Optional"
+          value={expiry}
+          onChange={setExpiry}
+          type="date"
+        />
+      </div>
+
       {error && (
         <p role="alert" className="rounded-2xl bg-danger-soft px-4 py-3 text-[15px] text-danger">
           {error}
@@ -262,6 +286,7 @@ function Field({
   numeric,
   autoFocus,
   list,
+  type = "text",
 }: {
   label: string;
   hint?: string;
@@ -271,12 +296,14 @@ function Field({
   numeric?: boolean;
   autoFocus?: boolean;
   list?: string;
+  type?: "text" | "date";
 }) {
   return (
     <label className="block">
       <span className="mb-1.5 block font-medium">{label}</span>
       {hint && <span className="mb-1.5 -mt-1 block text-[14px] text-muted">{hint}</span>}
       <input
+        type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

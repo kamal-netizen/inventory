@@ -46,6 +46,18 @@ export function formatFullDate(iso: string): string {
   return fullDate.format(new Date(iso));
 }
 
+const expiryDate = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** "12 Mar 2027", from a stored YYYY-MM-DD. UTC both ways, so the day never shifts. */
+export function formatExpiry(expiry: string): string {
+  return expiryDate.format(new Date(`${expiry}T00:00:00Z`));
+}
+
 /** "Whey Protein · Chocolate" */
 export function productLabel(name: string, flavor: string): string {
   return flavor ? `${name} · ${flavor}` : name;

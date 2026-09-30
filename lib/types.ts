@@ -6,6 +6,10 @@ export interface Product {
   flavor: string;
   quantity: number;
   low_stock_at: number;
+  /** Blank when not recorded. */
+  batch_no: string;
+  /** YYYY-MM-DD, or blank when not recorded. */
+  expiry: string;
   hidden: number;
   created_at: string;
 }

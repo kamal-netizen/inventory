@@ -76,19 +76,45 @@ export async function listBrands(warehouse: string): Promise<string[]> {
   return rows.map((row) => row.brand);
 }
 
+/**
+ * Batch number and expiry are optional: blank is stored as blank. An expiry
+ * that is present must be a real calendar date, since it is compared as text.
+ */
+function cleanBatch(input: { batchNo?: string; expiry?: string }): { batchNo: string; expiry: string } {
+  const batchNo = (input.batchNo ?? "").trim().slice(0, 80);
+  const expiry = (input.expiry ?? "").trim();
+  if (expiry) {
+    const valid =
+      /^\d{4}-\d{2}-\d{2}$/.test(expiry) &&
+      new Date(`${expiry}T00:00:00Z`).toISOString().startsWith(expiry);
+    if (!valid) throw new AppError("Expiry date is not a valid date");
+  }
+  return { batchNo, expiry };
+}
+
 export async function createProduct(
   warehouse: string,
-  input: { brand?: string; name: string; flavor: string; quantity: number; lowStockAt: number }
+  input: {
+    brand?: string;
+    name: string;
+    flavor: string;
+    quantity: number;
+    lowStockAt: number;
+    batchNo?: string;
+    expiry?: string;
+  }
 ): Promise<number> {
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
+  const { batchNo, expiry } = cleanBatch(input);
 
   return transaction(async (client) => {
     let id: number;
     try {
       const { rows } = await client.query<{ id: number }>(
-        `INSERT INTO products (warehouse, brand, name, flavor, quantity, low_stock_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        `INSERT INTO products
+           (warehouse, brand, name, flavor, quantity, low_stock_at, batch_no, expiry, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
         [
           warehouse,
           (input.brand ?? "").trim(),
@@ -96,6 +122,8 @@ export async function createProduct(
           input.flavor.trim(),
           input.quantity,
           input.lowStockAt,
+          batchNo,
+          expiry,
           now(),
         ]
       );
@@ -118,10 +146,19 @@ export async function createProduct(
 export async function updateProduct(
   warehouse: string,
   id: number,
-  input: { brand?: string; name: string; flavor: string; lowStockAt: number; quantity?: number }
+  input: {
+    brand?: string;
+    name: string;
+    flavor: string;
+    lowStockAt: number;
+    quantity?: number;
+    batchNo?: string;
+    expiry?: string;
+  }
 ): Promise<void> {
   const name = input.name.trim();
   if (!name) throw new AppError("Product name is required");
+  const { batchNo, expiry } = cleanBatch(input);
 
   await transaction(async (client) => {
     const { rows } = await client.query<Product>(
@@ -133,9 +170,19 @@ export async function updateProduct(
 
     try {
       await client.query(
-        `UPDATE products SET brand = $1, name = $2, flavor = $3, low_stock_at = $4
-         WHERE warehouse = $5 AND id = $6`,
-        [(input.brand ?? product.brand).trim(), name, input.flavor.trim(), input.lowStockAt, warehouse, id]
+        `UPDATE products
+         SET brand = $1, name = $2, flavor = $3, low_stock_at = $4, batch_no = $5, expiry = $6
+         WHERE warehouse = $7 AND id = $8`,
+        [
+          (input.brand ?? product.brand).trim(),
+          name,
+          input.flavor.trim(),
+          input.lowStockAt,
+          batchNo,
+          expiry,
+          warehouse,
+          id,
+        ]
       );
     } catch (err) {
       if (isDuplicate(err)) {

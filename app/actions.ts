@@ -61,6 +61,8 @@ export async function createProductAction(input: {
   flavor: string;
   quantity: number;
   lowStockAt: number;
+  batchNo?: string;
+  expiry?: string;
 }): Promise<Result<{ id: number }>> {
   try {
     const warehouse = await requireWarehouse();
@@ -74,7 +76,15 @@ export async function createProductAction(input: {
 
 export async function updateProductAction(
   id: number,
-  input: { brand: string; name: string; flavor: string; lowStockAt: number; quantity: number }
+  input: {
+    brand: string;
+    name: string;
+    flavor: string;
+    lowStockAt: number;
+    quantity: number;
+    batchNo?: string;
+    expiry?: string;
+  }
 ): Promise<Result> {
   try {
     const warehouse = await requireWarehouse();

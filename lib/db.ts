@@ -61,6 +61,14 @@ const MIGRATIONS: string[] = [
     locked_until TEXT
   );
   `,
+
+  // v2 — batch number and expiry, both optional. Blank means "not recorded";
+  // expiry holds a plain YYYY-MM-DD, which sorts and compares correctly as text.
+  `
+  ALTER TABLE products
+    ADD COLUMN batch_no TEXT NOT NULL DEFAULT '',
+    ADD COLUMN expiry   TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 /** Where the schema version lives. Postgres has no PRAGMA user_version. */
