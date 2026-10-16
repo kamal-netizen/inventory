@@ -119,7 +119,7 @@ export default function HistoryList({
                       </span>
                     )}
                     <span
-                      className={`block truncate font-medium ${undone ? "text-muted line-through" : ""}`}
+                      className={`block break-words font-medium ${undone ? "text-muted line-through" : ""}`}
                     >
                       {productLabel(row.product_name, row.product_flavor)}
                     </span>

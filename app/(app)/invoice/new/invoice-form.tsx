@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { checkInvoiceRefAction, createInvoiceAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
-import { formatDay, productLabel } from "@/lib/format";
+import { formatDay, matchesSearch, productLabel } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 interface Line {
@@ -86,15 +86,10 @@ export default function InvoiceForm({
   }, [restored, lines, reference, customer, key]);
 
   const results = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = search.trim();
     if (!term) return [];
     return products
-      .filter(
-        (product) =>
-          product.name.toLowerCase().includes(term) ||
-          product.flavor.toLowerCase().includes(term) ||
-          product.brand.toLowerCase().includes(term)
-      )
+      .filter((product) => matchesSearch(product, term))
       .slice(0, 10);
   }, [products, search]);
 
@@ -206,7 +201,7 @@ export default function InvoiceForm({
                             {product.brand}
                           </span>
                         )}
-                        <span className="block truncate font-medium">{product.name}</span>
+                        <span className="block break-words font-medium">{product.name}</span>
                         {product.flavor && (
                           <span className="mt-0.5 block truncate text-[14px] text-muted">
                             {product.flavor}
@@ -262,7 +257,7 @@ export default function InvoiceForm({
                 return (
                   <li key={line.productId} className="card flex items-center gap-2 px-3 py-2.5">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{product.name}</span>
+                      <span className="block break-words font-medium">{product.name}</span>
                       {product.flavor && (
                         <span className="mt-0.5 block truncate text-[14px] text-muted">
                           {product.flavor}

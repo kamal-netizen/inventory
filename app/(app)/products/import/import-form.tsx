@@ -224,7 +224,7 @@ export default function ImportForm() {
                         {row.brand}
                       </span>
                     )}
-                    <span className="block truncate text-[15px]">{row.name}</span>
+                    <span className="block break-words text-[15px]">{row.name}</span>
                     {row.flavor && (
                       <span className="block truncate text-[13px] text-muted">{row.flavor}</span>
                     )}

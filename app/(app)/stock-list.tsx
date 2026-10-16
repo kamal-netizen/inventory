@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { dayKey, formatExpiry } from "@/lib/format";
+import { dayKey, formatExpiry, matchesSearch } from "@/lib/format";
 import { PAGE, type Product } from "@/lib/types";
 
 type Status = "all" | "in" | "low" | "out";
@@ -39,18 +39,12 @@ export default function StockList({ products }: { products: Product[] }) {
   );
 
   const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = search.trim();
     return inBrand.filter((product) => {
       if (status === "in" && product.quantity <= 0) return false;
       if (status === "out" && product.quantity !== 0) return false;
       if (status === "low" && !isLow(product)) return false;
-      if (!term) return true;
-      return (
-        product.name.toLowerCase().includes(term) ||
-        product.flavor.toLowerCase().includes(term) ||
-        product.brand.toLowerCase().includes(term) ||
-        product.batch_no.toLowerCase().includes(term)
-      );
+      return matchesSearch(product, term);
     });
   }, [inBrand, search, status]);
 
@@ -281,7 +275,7 @@ export default function StockList({ products }: { products: Product[] }) {
                         <span className="-ml-1 h-9 w-1 shrink-0 rounded-full bg-warn" aria-hidden="true" />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{product.name}</span>
+                        <span className="block break-words font-medium">{product.name}</span>
                         {product.flavor && (
                           <span className="mt-0.5 block truncate text-[14px] text-muted">
                             {product.flavor}

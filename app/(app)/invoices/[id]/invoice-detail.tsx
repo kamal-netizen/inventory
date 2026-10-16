@@ -95,7 +95,7 @@ export default function InvoiceDetail({
                     {line.product_brand}
                   </span>
                 )}
-                <span className="block truncate">
+                <span className="block break-words">
                   {productLabel(line.product_name, line.product_flavor)}
                 </span>
               </span>

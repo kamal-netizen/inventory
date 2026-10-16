@@ -63,6 +63,24 @@ export function productLabel(name: string, flavor: string): string {
   return flavor ? `${name} · ${flavor}` : name;
 }
 
+/**
+ * Whether a search matches a product.
+ *
+ * Every word typed has to turn up somewhere in the brand, name, flavour or batch,
+ * in any order. Matching the whole phrase as one string meant "core champs whey
+ * rich chocolate" found nothing against "CORE CHAMPS WHEY PROTEIN 5LBS/2.27KG -
+ * RICH CHOCOLATE", because the words are not next to each other.
+ */
+export function matchesSearch(
+  product: { brand: string; name: string; flavor: string; batch_no?: string },
+  search: string
+): boolean {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const text = `${product.brand} ${product.name} ${product.flavor} ${product.batch_no ?? ""}`.toLowerCase();
+  return words.every((word) => text.includes(word));
+}
+
 /** "17-09-2026" — day first, the way it is read here. */
 export function fileDate(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-GB", {
