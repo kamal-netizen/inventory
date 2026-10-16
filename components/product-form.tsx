@@ -28,8 +28,13 @@ export default function ProductForm({
   const [typingBrand, setTypingBrand] = useState(false);
 
   const [name, setName] = useState(product?.name ?? "");
-  const [flavor, setFlavor] = useState(product?.flavor ?? "");
+  // No input for this any more: the full name carries the flavour. Kept so editing
+  // a product that already has one does not wipe it.
+  const [flavor] = useState(product?.flavor ?? "");
   const [quantity, setQuantity] = useState(product ? String(product.quantity) : "");
+  // Editing never types over the quantity. Stock comes in through this field,
+  // and the locked quantity above it shows what the total will be.
+  const [addStock, setAddStock] = useState("");
   const [lowStockAt, setLowStockAt] = useState(
     product?.low_stock_at ? String(product.low_stock_at) : ""
   );
@@ -52,8 +57,9 @@ export default function ProductForm({
     return [...all].sort((a, b) => a.localeCompare(b));
   }, [brands, product?.brand]);
 
-  const newQuantity = Number(quantity || 0);
-  const quantityChanged = editing && newQuantity !== product!.quantity;
+  const adding = Number(addStock || 0);
+  const newQuantity = editing ? product!.quantity + adding : Number(quantity || 0);
+  const quantityChanged = editing && adding > 0;
 
   function save() {
     if (!name.trim()) {
@@ -67,8 +73,8 @@ export default function ProductForm({
             brand,
             name,
             flavor,
-            quantity: newQuantity,
-            lowStockAt: Number(lowStockAt || 0),
+            addStock: adding,
+            lowStockAt: product!.low_stock_at,
             batchNo,
             expiry,
           })
@@ -90,7 +96,7 @@ export default function ProductForm({
       toast({
         message: editing
           ? quantityChanged
-            ? `${name.trim()} · stock set to ${newQuantity}`
+            ? `${name.trim()} · ${adding} added, stock now ${newQuantity}`
             : "Product updated"
           : `${name.trim()} added`,
       });
@@ -185,35 +191,41 @@ export default function ProductForm({
       />
 
       <Field
-        label="Flavour or variant"
-        hint="Leave blank if it has none"
-        value={flavor}
-        onChange={setFlavor}
-        placeholder="Chocolate"
-      />
-
-      <Field
         label="Quantity in stock"
         hint={
           quantityChanged
-            ? `Will change from ${product!.quantity} to ${newQuantity} and be recorded in History`
-            : undefined
+            ? `${product!.quantity} + ${adding} added = ${newQuantity}`
+            : editing
+              ? "Locked. Use Add stock below to receive more"
+              : undefined
         }
-        value={quantity}
+        value={editing ? String(newQuantity) : quantity}
         onChange={(value) => setQuantity(value.replace(/\D/g, ""))}
         placeholder="0"
         numeric
-        autoFocus={editing}
+        readOnly={editing}
       />
 
-      <Field
-        label="Warn me when stock falls to"
-        hint="Leave blank for no warning"
-        value={lowStockAt}
-        onChange={(value) => setLowStockAt(value.replace(/\D/g, ""))}
-        placeholder="10"
-        numeric
-      />
+      {editing ? (
+        <Field
+          label="Add stock"
+          hint="How many arrived. The quantity above updates, and it is recorded in History"
+          value={addStock}
+          onChange={(value) => setAddStock(value.replace(/\D/g, ""))}
+          placeholder="0"
+          numeric
+          autoFocus
+        />
+      ) : (
+        <Field
+          label="Warn me when stock falls to"
+          hint="Leave blank for no warning"
+          value={lowStockAt}
+          onChange={(value) => setLowStockAt(value.replace(/\D/g, ""))}
+          placeholder="10"
+          numeric
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Field
@@ -285,6 +297,7 @@ function Field({
   placeholder,
   numeric,
   autoFocus,
+  readOnly,
   list,
   type = "text",
 }: {
@@ -295,6 +308,7 @@ function Field({
   placeholder?: string;
   numeric?: boolean;
   autoFocus?: boolean;
+  readOnly?: boolean;
   list?: string;
   type?: "text" | "date";
 }) {
@@ -308,10 +322,12 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        readOnly={readOnly}
         list={list}
         inputMode={numeric ? "numeric" : undefined}
-        className="h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none
-                   placeholder:text-muted focus:border-brand"
+        className={`h-14 w-full rounded-2xl border border-line px-4 outline-none
+                    placeholder:text-muted focus:border-brand
+                    ${readOnly ? "cursor-not-allowed bg-page text-muted" : "bg-surface"}`}
       />
     </label>
   );

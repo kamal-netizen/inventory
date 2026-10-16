@@ -81,7 +81,8 @@ export async function updateProductAction(
     name: string;
     flavor: string;
     lowStockAt: number;
-    quantity: number;
+    quantity?: number;
+    addStock?: number;
     batchNo?: string;
     expiry?: string;
   }

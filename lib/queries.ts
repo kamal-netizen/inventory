@@ -152,6 +152,8 @@ export async function updateProduct(
     flavor: string;
     lowStockAt: number;
     quantity?: number;
+    /** Units received, added to whatever is on the shelf when this runs. */
+    addStock?: number;
     batchNo?: string;
     expiry?: string;
   }
@@ -189,6 +191,19 @@ export async function updateProduct(
         throw new AppError("Another product already has that brand, name and flavour");
       }
       throw err;
+    }
+
+    // Added in SQL rather than computed from a number the form read earlier, so
+    // a delivery note saved in between is not overwritten.
+    if (input.addStock) {
+      if (!Number.isInteger(input.addStock) || input.addStock < 0) {
+        throw new AppError("Stock to add must be a whole number");
+      }
+      await client.query(
+        "UPDATE products SET quantity = quantity + $1 WHERE warehouse = $2 AND id = $3",
+        [input.addStock, warehouse, id]
+      );
+      await logMovement(client, warehouse, id, input.addStock, "in", "Added from product page");
     }
 
     // Typing a quantity here is a stock correction, so it goes in the log like
