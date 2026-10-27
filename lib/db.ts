@@ -76,6 +76,21 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE invoices ADD COLUMN kind TEXT NOT NULL DEFAULT 'delivery';
   `,
+
+  // v4 — damaged units kept aside against a credit note. They have already been
+  // taken out of the product's quantity, so nothing here is sellable stock.
+  `
+  CREATE TABLE damaged (
+    id         SERIAL PRIMARY KEY,
+    warehouse  TEXT    NOT NULL,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    quantity   INTEGER NOT NULL CHECK (quantity > 0),
+    created_at TEXT    NOT NULL
+  );
+  CREATE INDEX damaged_warehouse ON damaged(warehouse, created_at);
+  CREATE INDEX damaged_invoice ON damaged(invoice_id, product_id);
+  `,
 ];
 
 /** Where the schema version lives. Postgres has no PRAGMA user_version. */

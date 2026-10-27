@@ -28,6 +28,12 @@ export default function StockList({ products }: { products: Product[] }) {
     [products, brand]
   );
 
+  // Units kept aside as damaged. They are not in any quantity shown here.
+  const damagedUnits = useMemo(
+    () => products.reduce((sum, p) => sum + (p.damaged ?? 0), 0),
+    [products]
+  );
+
   const counts = useMemo(
     () => ({
       all: inBrand.length,
@@ -216,6 +222,15 @@ export default function StockList({ products }: { products: Product[] }) {
             <span className="ml-1.5 tabular-nums opacity-60">{counts[value]}</span>
           </button>
         ))}
+
+        <Link
+          href="/damaged"
+          className="flex h-10 shrink-0 items-center rounded-xl border border-line bg-surface px-3
+                     text-[14px] font-medium text-muted transition hover:border-brand hover:text-brand"
+        >
+          Damaged
+          <span className="ml-1.5 tabular-nums opacity-60">{damagedUnits}</span>
+        </Link>
       </div>
 
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -279,6 +294,11 @@ export default function StockList({ products }: { products: Product[] }) {
                         {product.flavor && (
                           <span className="mt-0.5 block truncate text-[14px] text-muted">
                             {product.flavor}
+                          </span>
+                        )}
+                        {(product.damaged ?? 0) > 0 && (
+                          <span className="mt-0.5 block truncate text-[13px] font-medium text-warn">
+                            {product.damaged} damaged, kept aside
                           </span>
                         )}
                         {(product.batch_no || product.expiry) && (

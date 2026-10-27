@@ -8,6 +8,8 @@ export interface Product {
   low_stock_at: number;
   /** Blank when not recorded. */
   batch_no: string;
+  /** Units kept aside as damaged. Not part of `quantity`. Only the stock list loads it. */
+  damaged?: number;
   /** YYYY-MM-DD, or blank when not recorded. */
   expiry: string;
   hidden: number;
@@ -27,7 +29,7 @@ export interface Invoice {
 }
 
 /** Why the stock changed. Drives the wording and icon shown in History. */
-export type Reason = "new" | "in" | "out" | "invoice" | "credit" | "adjust" | "cancel" | "undo";
+export type Reason = "new" | "in" | "out" | "invoice" | "credit" | "damage" | "adjust" | "cancel" | "undo";
 
 export interface Movement {
   id: number;

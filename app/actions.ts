@@ -167,6 +167,33 @@ export async function loadInvoicesAction(
   }
 }
 
+/* ---------------------------------- damaged ---------------------------------- */
+
+export async function addDamagedAction(input: {
+  invoiceId: number;
+  lines: InvoiceLine[];
+}): Promise<Result> {
+  try {
+    const warehouse = await requireWarehouse();
+    await q.createDamaged(warehouse.key, input.invoiceId, input.lines);
+    refreshAll();
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function removeDamagedAction(id: number): Promise<Result> {
+  try {
+    const warehouse = await requireWarehouse();
+    await q.removeDamaged(warehouse.key, id);
+    refreshAll();
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 /** Paging for the movement log. It has no search, so the total never moves. */
 export async function loadHistoryAction(
   after: Cursor

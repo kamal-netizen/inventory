@@ -16,6 +16,7 @@ const REASON_LABEL: Record<string, string> = {
   adjust: "Adjusted",
   invoice: "Delivery note",
   credit: "Credit note",
+  damage: "Damaged",
 };
 
 export default function HistoryList({
@@ -155,7 +156,7 @@ export default function HistoryList({
                     {row.change}
                   </span>
 
-                  {!undone && !fromInvoice && (
+                  {!undone && !fromInvoice && row.reason !== "damage" && (
                     <button
                       type="button"
                       onClick={() => undo(row.id)}

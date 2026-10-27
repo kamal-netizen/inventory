@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cancelInvoiceAction } from "@/app/actions";
 import Confirm from "@/components/confirm";
@@ -144,6 +145,16 @@ export default function InvoiceDetail({
         </svg>
         Download PDF
       </a>
+
+      {credit && !cancelled && (
+        <Link
+          href={`/damaged/new?note=${invoice.id}`}
+          className="tap flex w-full items-center justify-center rounded-2xl border border-line
+                     text-[15px] font-semibold transition hover:border-brand hover:text-brand"
+        >
+          Add damaged products
+        </Link>
+      )}
 
       {cancelled ? (
         <p className="rounded-2xl bg-page px-4 py-3 text-[15px] leading-snug text-muted">

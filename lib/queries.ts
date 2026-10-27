@@ -36,14 +36,18 @@ const int = (value: unknown): number => Number(value ?? 0);
 
 export async function listProducts(warehouse: string, search = ""): Promise<Product[]> {
   const term = search.trim().toLowerCase();
-  return query<Product>(
-    `SELECT * FROM products
-     WHERE warehouse = $1 AND hidden = 0
-       AND ($2 = '' OR lower(name) LIKE $3 OR lower(flavor) LIKE $3 OR lower(brand) LIKE $3)
-     ORDER BY (low_stock_at > 0 AND quantity <= low_stock_at) DESC,
-              lower(brand), lower(name), lower(flavor)`,
+  const rows = await query<Product>(
+    `SELECT p.*,
+            (SELECT COALESCE(sum(d.quantity), 0) FROM damaged d WHERE d.product_id = p.id) AS damaged
+     FROM products p
+     WHERE p.warehouse = $1 AND p.hidden = 0
+       AND ($2 = '' OR lower(p.name) LIKE $3 OR lower(p.flavor) LIKE $3 OR lower(p.brand) LIKE $3)
+     ORDER BY (p.low_stock_at > 0 AND p.quantity <= p.low_stock_at) DESC,
+              lower(p.brand), lower(p.name), lower(p.flavor)`,
     [warehouse, term, `%${term}%`]
   );
+  // sum() arrives as a string, like every aggregate here.
+  return rows.map((row) => ({ ...row, damaged: int(row.damaged) }));
 }
 
 /**
@@ -267,6 +271,9 @@ export async function undoMovement(warehouse: string, movementId: number): Promi
 
     if (!movement) throw new AppError("That change was already undone");
     if (movement.invoice_id) throw new AppError("Cancel the delivery note instead");
+    if (movement.reason === "damage") {
+      throw new AppError("Take it off the Damaged list instead");
+    }
 
     const found = await client.query<Product>(
       "SELECT * FROM products WHERE warehouse = $1 AND id = $2",
@@ -445,20 +452,36 @@ export async function cancelInvoice(warehouse: string, invoiceId: number): Promi
         [warehouse, line.product_id]
       );
       const product = held.rows[0];
-      if (product && product.quantity - line.change < 0) {
+
+      // Units already set aside as damaged left stock when they were listed, so
+      // only the rest still has to come out now.
+      const asideRow = await client.query<{ n: string }>(
+        `SELECT COALESCE(sum(quantity), 0) AS n FROM damaged
+         WHERE warehouse = $1 AND invoice_id = $2 AND product_id = $3`,
+        [warehouse, invoiceId, line.product_id]
+      );
+      const reverse = line.change - int(asideRow.rows[0]?.n);
+
+      if (product && product.quantity - reverse < 0) {
         const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
         throw new AppError(
-          `Cannot cancel — ${label} has only ${product.quantity} in stock, but ${line.change} came back on this credit note`
+          `Cannot cancel — ${label} has only ${product.quantity} in stock, but ${reverse} of what came back on this credit note should still be there`
         );
       }
 
       // line.change is negative for a delivery, so subtracting it adds the stock back.
       await client.query(
         "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
-        [line.change, warehouse, line.product_id]
+        [reverse, warehouse, line.product_id]
       );
       await client.query("UPDATE movements SET undone = 1 WHERE id = $1", [line.id]);
     }
+
+    // The note is void, so whatever was kept aside against it goes with it.
+    await client.query("DELETE FROM damaged WHERE warehouse = $1 AND invoice_id = $2", [
+      warehouse,
+      invoiceId,
+    ]);
 
     await client.query(
       "UPDATE invoices SET status = 'cancelled', cancelled_at = $1 WHERE id = $2",
@@ -543,6 +566,209 @@ export async function getInvoiceWithLines(
     lines,
     units: lines.reduce((total, line) => total + Math.abs(line.change), 0),
   };
+}
+
+/* ---------------------------------- damaged ---------------------------------- */
+
+export interface DamagedRow {
+  id: number;
+  quantity: number;
+  created_at: string;
+  product_id: number;
+  product_name: string;
+  product_flavor: string;
+  product_brand: string;
+  invoice_id: number;
+  invoice_ref: string;
+  invoice_customer: string;
+  invoice_status: string;
+}
+
+/** Everything kept aside, newest first. Small enough to search in the browser. */
+export async function listDamaged(warehouse: string): Promise<DamagedRow[]> {
+  const rows = await query<DamagedRow>(
+    `SELECT d.id, d.quantity, d.created_at, d.product_id,
+            p.name AS product_name, p.flavor AS product_flavor, p.brand AS product_brand,
+            d.invoice_id, i.ref AS invoice_ref, i.customer AS invoice_customer,
+            i.status AS invoice_status
+     FROM damaged d
+     JOIN products p ON p.id = d.product_id
+     JOIN invoices i ON i.id = d.invoice_id
+     WHERE d.warehouse = $1
+     ORDER BY d.created_at DESC, d.id DESC
+     LIMIT 2000`,
+    [warehouse]
+  );
+  return rows.map((row) => ({ ...row, quantity: int(row.quantity) }));
+}
+
+export interface CreditNoteChoice {
+  id: number;
+  ref: string;
+  customer: string;
+  created_at: string;
+  units: number;
+}
+
+/** Credit notes still standing, newest first, for picking the one the damage belongs to. */
+export async function listCreditNoteChoices(warehouse: string): Promise<CreditNoteChoice[]> {
+  const rows = await query<CreditNoteChoice>(
+    `SELECT i.id, i.ref, i.customer, i.created_at,
+            (SELECT COALESCE(sum(m.change), 0) FROM movements m
+             WHERE m.invoice_id = i.id AND m.undone = 0) AS units
+     FROM invoices i
+     WHERE i.warehouse = $1 AND i.kind = 'credit' AND i.status = 'active'
+     ORDER BY i.created_at DESC, i.id DESC
+     LIMIT 300`,
+    [warehouse]
+  );
+  return rows.map((row) => ({ ...row, units: int(row.units) }));
+}
+
+export interface CreditLine {
+  product_id: number;
+  product_name: string;
+  product_flavor: string;
+  product_brand: string;
+  /** Came back on the note. */
+  returned: number;
+  /** Already kept aside against it. */
+  damaged: number;
+}
+
+/** One credit note with what came back on it and how much of that is already set aside. */
+export async function getCreditNoteLines(
+  warehouse: string,
+  id: number
+): Promise<{ invoice: Invoice; lines: CreditLine[] } | null> {
+  const invoice = await getInvoice(warehouse, id);
+  if (!invoice || invoice.kind !== "credit" || invoice.status !== "active") return null;
+
+  const lines = await query<CreditLine>(
+    `SELECT m.product_id, p.name AS product_name, p.flavor AS product_flavor,
+            p.brand AS product_brand, sum(m.change) AS returned,
+            (SELECT COALESCE(sum(d.quantity), 0) FROM damaged d
+             WHERE d.invoice_id = m.invoice_id AND d.product_id = m.product_id) AS damaged
+     FROM movements m JOIN products p ON p.id = m.product_id
+     WHERE m.warehouse = $1 AND m.invoice_id = $2 AND m.undone = 0
+     GROUP BY m.product_id, p.name, p.flavor, p.brand, m.invoice_id
+     ORDER BY min(m.id)`,
+    [warehouse, id]
+  );
+
+  return {
+    invoice,
+    lines: lines.map((line) => ({
+      ...line,
+      returned: int(line.returned),
+      damaged: int(line.damaged),
+    })),
+  };
+}
+
+/**
+ * Keep units aside as damaged against a credit note.
+ *
+ * They came back with the note, so they are already in the product's quantity;
+ * this takes them out again. A line cannot set aside more than came back on the
+ * note, nor more than is on the shelf now — all or nothing.
+ */
+export async function createDamaged(
+  warehouse: string,
+  invoiceId: number,
+  lines: InvoiceLine[]
+): Promise<void> {
+  const wanted = lines.filter((line) => line.quantity > 0);
+  if (wanted.length === 0) throw new AppError("Enter how many are damaged");
+
+  await transaction(async (client) => {
+    const found = await client.query<Invoice>(
+      "SELECT * FROM invoices WHERE warehouse = $1 AND id = $2 FOR UPDATE",
+      [warehouse, invoiceId]
+    );
+    const invoice = found.rows[0];
+    if (!invoice || invoice.kind !== "credit") throw new AppError("Credit note not found");
+    if (invoice.status === "cancelled") throw new AppError("That credit note is cancelled");
+
+    const problems: string[] = [];
+
+    for (const line of wanted) {
+      if (!Number.isInteger(line.quantity)) throw new AppError("Damaged units must be a whole number");
+
+      const held = await client.query<Product>(
+        "SELECT * FROM products WHERE warehouse = $1 AND id = $2 FOR UPDATE",
+        [warehouse, line.productId]
+      );
+      const product = held.rows[0];
+      if (!product) throw new AppError("A product on this credit note no longer exists");
+      const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
+
+      const sums = await client.query<{ returned: string; damaged: string }>(
+        `SELECT
+           (SELECT COALESCE(sum(change), 0) FROM movements
+            WHERE warehouse = $1 AND invoice_id = $2 AND product_id = $3 AND undone = 0) AS returned,
+           (SELECT COALESCE(sum(quantity), 0) FROM damaged
+            WHERE warehouse = $1 AND invoice_id = $2 AND product_id = $3) AS damaged`,
+        [warehouse, invoiceId, line.productId]
+      );
+      const returned = int(sums.rows[0].returned);
+      const open = returned - int(sums.rows[0].damaged);
+
+      if (returned === 0) {
+        problems.push(`${label} is not on this credit note`);
+      } else if (line.quantity > open) {
+        problems.push(`${label} — only ${open} of ${returned} left to mark as damaged`);
+      } else if (line.quantity > product.quantity) {
+        problems.push(`${label} — only ${product.quantity} in stock now`);
+      }
+    }
+    if (problems.length > 0) throw new AppError(problems.join("\n"));
+
+    for (const line of wanted) {
+      await client.query(
+        `INSERT INTO damaged (warehouse, product_id, invoice_id, quantity, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [warehouse, line.productId, invoiceId, line.quantity, now()]
+      );
+      await client.query(
+        "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
+        [line.quantity, warehouse, line.productId]
+      );
+      await logMovement(client, warehouse, line.productId, -line.quantity, "damage", invoice.ref);
+    }
+  });
+}
+
+/** A damaged entry made by mistake: the units go back into stock. */
+export async function removeDamaged(warehouse: string, id: number): Promise<void> {
+  await transaction(async (client) => {
+    const found = await client.query<{
+      product_id: number;
+      quantity: number;
+      ref: string;
+    }>(
+      `SELECT d.product_id, d.quantity, i.ref
+       FROM damaged d JOIN invoices i ON i.id = d.invoice_id
+       WHERE d.warehouse = $1 AND d.id = $2 FOR UPDATE OF d`,
+      [warehouse, id]
+    );
+    const entry = found.rows[0];
+    if (!entry) throw new AppError("That damaged entry was already removed");
+
+    await client.query("DELETE FROM damaged WHERE id = $1", [id]);
+    await client.query(
+      "UPDATE products SET quantity = quantity + $1 WHERE warehouse = $2 AND id = $3",
+      [entry.quantity, warehouse, entry.product_id]
+    );
+    await logMovement(
+      client,
+      warehouse,
+      entry.product_id,
+      entry.quantity,
+      "damage",
+      `${entry.ref} · taken off damaged`
+    );
+  });
 }
 
 /* ---------------------------------- history ---------------------------------- */
