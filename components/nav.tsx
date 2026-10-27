@@ -55,6 +55,18 @@ const TABS = [
     ),
   },
   {
+    href: "/damaged",
+    label: "Damaged",
+    short: "Damaged",
+    exact: false,
+    icon: (
+      <>
+        <path d="M4 8l8-4 8 4v8l-8 4-8-4V8Z" />
+        <path d="M12 9v4M12 16.5h.01" />
+      </>
+    ),
+  },
+  {
     href: "/history",
     label: "History",
     short: "History",
