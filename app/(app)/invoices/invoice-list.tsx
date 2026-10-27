@@ -136,6 +136,11 @@ export default function InvoiceList({
                       >
                         {invoice.ref}
                       </span>
+                      {invoice.kind === "credit" && (
+                        <span className="shrink-0 rounded-md bg-brand-soft px-1.5 py-0.5 text-[12px] font-semibold text-brand">
+                          Credit
+                        </span>
+                      )}
                       {cancelled && (
                         <span className="shrink-0 rounded-md bg-danger-soft px-1.5 py-0.5 text-[12px] font-semibold text-danger">
                           Cancelled
@@ -144,7 +149,8 @@ export default function InvoiceList({
                     </span>
                     <span className="mt-0.5 block truncate text-[14px] text-muted">
                       {invoice.customer || "No customer"} · {invoice.lines}{" "}
-                      {invoice.lines === 1 ? "item" : "items"} · {invoice.units} units
+                      {invoice.lines === 1 ? "item" : "items"} · {invoice.units}{" "}
+                      {invoice.kind === "credit" ? "units back" : "units"}
                     </span>
                   </span>
 

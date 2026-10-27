@@ -30,6 +30,18 @@ const TABS = [
     ),
   },
   {
+    href: "/credit/new",
+    label: "New credit note",
+    short: "Credit",
+    exact: true,
+    icon: (
+      <>
+        <path d="M6 3h9l3 3v15H6V3Z" />
+        <path d="M8.5 13.5h7" />
+      </>
+    ),
+  },
+  {
     href: "/invoices",
     label: "Delivery notes",
     short: "Notes",

@@ -24,6 +24,8 @@ export default function InvoiceDetail({
   const [pending, startTransition] = useTransition();
 
   const cancelled = invoice.status === "cancelled";
+  const credit = invoice.kind === "credit";
+  const noun = credit ? "credit note" : "delivery note";
 
   function cancel() {
     startTransition(async () => {
@@ -33,7 +35,11 @@ export default function InvoiceDetail({
         return;
       }
       setAsking(false);
-      toast({ message: `${invoice.ref} cancelled · stock put back` });
+      toast({
+        message: credit
+          ? `${invoice.ref} cancelled · stock taken back out`
+          : `${invoice.ref} cancelled · stock put back`,
+      });
       router.refresh();
     });
   }
@@ -46,6 +52,11 @@ export default function InvoiceDetail({
             <h2 className={`text-[22px] font-semibold ${cancelled ? "text-muted line-through" : ""}`}>
               {invoice.ref}
             </h2>
+            {credit && (
+              <span className="mt-1 inline-block rounded-md bg-brand-soft px-1.5 py-0.5 text-[12px] font-semibold text-brand">
+                Credit note
+              </span>
+            )}
             <p className="mt-1 text-[15px] text-muted">
               {formatFullDate(invoice.created_at)} · {formatTime(invoice.created_at)}
             </p>
@@ -82,7 +93,7 @@ export default function InvoiceDetail({
       <div className="card overflow-hidden">
         <div className="border-b border-line px-4 py-3">
           <h3 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
-            What went out
+            {credit ? "What came back" : "What went out"}
           </h3>
         </div>
 
@@ -136,8 +147,9 @@ export default function InvoiceDetail({
 
       {cancelled ? (
         <p className="rounded-2xl bg-page px-4 py-3 text-[15px] leading-snug text-muted">
-          This delivery note was cancelled and all {units} units went back into stock. It is kept
-          here so the record stays complete.
+          This {noun} was cancelled and all {units} units{" "}
+          {credit ? "were taken back out of stock" : "went back into stock"}. It is kept here so the
+          record stays complete.
         </p>
       ) : (
         <button
@@ -146,14 +158,18 @@ export default function InvoiceDetail({
           className="tap w-full rounded-2xl border border-line text-[15px] font-semibold text-danger
                      transition hover:bg-danger-soft"
         >
-          Cancel delivery note
+          Cancel {noun}
         </button>
       )}
 
       {asking && (
         <Confirm
           title={`Cancel ${invoice.ref}?`}
-          body={`All ${units} units go back into stock. The note stays here, marked cancelled.`}
+          body={
+            credit
+              ? `All ${units} units come back out of stock. The note stays here, marked cancelled.`
+              : `All ${units} units go back into stock. The note stays here, marked cancelled.`
+          }
           cancelLabel="Keep it"
           confirmLabel="Cancel it"
           danger

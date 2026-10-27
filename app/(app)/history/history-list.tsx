@@ -15,6 +15,7 @@ const REASON_LABEL: Record<string, string> = {
   out: "Stock out",
   adjust: "Adjusted",
   invoice: "Delivery note",
+  credit: "Credit note",
 };
 
 export default function HistoryList({

@@ -12,21 +12,30 @@ interface Line {
   quantity: number;
 }
 
-/** Draft key is per warehouse, so one warehouse's draft can never show up in the other's form. */
-export const draftKey = (warehouse: string) => `invoice-draft:${warehouse}`;
+/**
+ * Draft key is per warehouse, so one warehouse's draft can never show up in the
+ * other's form, and per kind, so a half-typed credit note never lands in a
+ * delivery note.
+ */
+export const draftKey = (warehouse: string, kind: "delivery" | "credit" = "delivery") =>
+  kind === "credit" ? `credit-draft:${warehouse}` : `invoice-draft:${warehouse}`;
 
 export default function InvoiceForm({
   products,
   warehouseKey,
   suggested,
+  kind = "delivery",
 }: {
   products: Product[];
   warehouseKey: string;
   /** The next number in the run, and the one it follows. Both empty if unknown. */
   suggested: { next: string; from: string };
+  /** A credit note puts returned stock back in instead of taking it out. */
+  kind?: "delivery" | "credit";
 }) {
   const router = useRouter();
   const toast = useToast();
+  const credit = kind === "credit";
 
   const [search, setSearch] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
@@ -39,7 +48,7 @@ export default function InvoiceForm({
   const [pending, startTransition] = useTransition();
 
   const byId = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
-  const key = draftKey(warehouseKey);
+  const key = draftKey(warehouseKey, kind);
 
   // Bring back an unfinished note — someone checking a number on the stock
   // screen and coming back should not lose what they already keyed in.
@@ -117,12 +126,12 @@ export default function InvoiceForm({
       return;
     }
     if (!reference.trim()) {
-      setError("Enter the delivery note or sales order number");
+      setError(credit ? "Enter the credit note number" : "Enter the delivery note or sales order number");
       return;
     }
 
     startTransition(async () => {
-      const result = await createInvoiceAction({ ref: reference, customer, lines });
+      const result = await createInvoiceAction({ ref: reference, customer, lines, kind });
       if (!result.ok) {
         setError(result.error);
         return;
@@ -138,7 +147,7 @@ export default function InvoiceForm({
       clearDraft();
 
       toast({
-        message: `${saved} saved · ${count} ${count === 1 ? "item" : "items"} · ${totalUnits} units out`,
+        message: `${saved} saved · ${count} ${count === 1 ? "item" : "items"} · ${totalUnits} units ${credit ? "back in" : "out"}`,
       });
       // Land on the stored invoice, so it is obvious the record was kept.
       router.push(`/invoices/${result.id}`);
@@ -180,7 +189,9 @@ export default function InvoiceForm({
             <ul className="mt-2 space-y-1.5">
               {results.map((product) => {
                 const existing = lines.find((line) => line.productId === product.id);
-                const empty = product.quantity === 0;
+                // Nothing to deliver is a dead end; nothing on the shelf is the
+                // normal case for a return.
+                const empty = !credit && product.quantity === 0;
 
                 return (
                   <li key={product.id}>
@@ -209,7 +220,7 @@ export default function InvoiceForm({
                         )}
                       </span>
                       <span className="shrink-0 text-[14px] text-muted">
-                        {empty ? "none left" : `${product.quantity} left`}
+                        {empty ? "none left" : credit ? `${product.quantity} in stock` : `${product.quantity} left`}
                       </span>
                       {existing && (
                         <span className="shrink-0 rounded-lg bg-brand-soft px-2 py-1 text-[13px] font-semibold text-brand">
@@ -293,7 +304,9 @@ export default function InvoiceForm({
 
           <div className="mt-5 space-y-4">
             <label className="block">
-              <span className="mb-1.5 block font-medium">Delivery note / SO number</span>
+              <span className="mb-1.5 block font-medium">
+                {credit ? "Credit note number" : "Delivery note / SO number"}
+              </span>
               <input
                 value={reference}
                 onChange={(event) => {
@@ -302,10 +315,10 @@ export default function InvoiceForm({
                   setError("");
                 }}
                 onBlur={async () => {
-                  const { usedOn } = await checkInvoiceRefAction(reference);
+                  const { usedOn } = await checkInvoiceRefAction(reference, kind);
                   setDuplicate(usedOn);
                 }}
-                placeholder="DN-2451"
+                placeholder={credit ? "CN-1001" : "DN-2451"}
                 className="h-14 w-full rounded-2xl border border-line bg-surface px-4 outline-none
                            placeholder:text-muted focus:border-brand"
               />
@@ -352,13 +365,14 @@ export default function InvoiceForm({
             className="tap mt-4 w-full rounded-2xl bg-brand text-[17px] font-semibold text-white
                        transition hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
           >
-            {lines.length === 0 ? "Save" : `Save — ${totalUnits} units out`}
+            {lines.length === 0 ? "Save" : `Save — ${totalUnits} units ${credit ? "back in" : "out"}`}
           </button>
         </div>
       </div>
 
       {picking && (
         <LineSheet
+          credit={credit}
           product={picking}
           current={lines.find((line) => line.productId === picking.id)?.quantity ?? 0}
           onClose={() => setPicking(null)}
@@ -372,13 +386,18 @@ export default function InvoiceForm({
   );
 }
 
-/** Quantity entry for one invoice line — capped at what is actually in stock. */
+/**
+ * Quantity entry for one note line. A delivery is capped at what is actually in
+ * stock; a return is not, since it is stock arriving.
+ */
 function LineSheet({
+  credit,
   product,
   current,
   onClose,
   onSet,
 }: {
+  credit: boolean;
   product: Product;
   current: number;
   onClose: () => void;
@@ -386,7 +405,7 @@ function LineSheet({
 }) {
   const [digits, setDigits] = useState(current ? String(current) : "");
   const amount = Number(digits || 0);
-  const tooMany = amount > product.quantity;
+  const tooMany = !credit && amount > product.quantity;
   const ready = amount > 0 && !tooMany;
 
   useEffect(() => {
@@ -394,11 +413,13 @@ function LineSheet({
       if (event.key === "Escape") onClose();
       else if (/^[0-9]$/.test(event.key)) setDigits((d) => (d + event.key).slice(0, 6));
       else if (event.key === "Backspace") setDigits((d) => d.slice(0, -1));
-      else if (event.key === "Enter" && amount > 0 && amount <= product.quantity) onSet(amount);
+      else if (event.key === "Enter" && amount > 0 && (credit || amount <= product.quantity)) {
+        onSet(amount);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, onSet, amount, product.quantity]);
+  }, [onClose, onSet, amount, product.quantity, credit]);
 
   return (
     <div
@@ -422,7 +443,11 @@ function LineSheet({
             {digits || "0"}
           </div>
           <p className={`mt-2 text-[15px] ${tooMany ? "text-danger" : "text-muted"}`}>
-            {tooMany ? `Only ${product.quantity} in stock` : "How many are going out?"}
+            {tooMany
+              ? `Only ${product.quantity} in stock`
+              : credit
+                ? "How many are coming back?"
+                : "How many are going out?"}
           </p>
         </div>
 

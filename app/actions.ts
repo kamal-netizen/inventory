@@ -111,11 +111,14 @@ export async function hideProductAction(id: number): Promise<Result> {
 /* ---------------------------------- invoices ---------------------------------- */
 
 /** Used by the invoice screen to warn (not block) on a reused number. */
-export async function checkInvoiceRefAction(ref: string): Promise<{ usedOn: string | null }> {
+export async function checkInvoiceRefAction(
+  ref: string,
+  kind: "delivery" | "credit" = "delivery"
+): Promise<{ usedOn: string | null }> {
   try {
     const warehouse = await requireWarehouse();
     if (!ref.trim()) return { usedOn: null };
-    const existing = await q.invoiceRefUsed(warehouse.key, ref);
+    const existing = await q.invoiceRefUsed(warehouse.key, ref, kind);
     return { usedOn: existing ? existing.created_at : null };
   } catch {
     return { usedOn: null };
@@ -126,6 +129,7 @@ export async function createInvoiceAction(input: {
   ref: string;
   customer: string;
   lines: InvoiceLine[];
+  kind?: "delivery" | "credit";
 }): Promise<Result<{ id: number }>> {
   try {
     const warehouse = await requireWarehouse();

@@ -300,10 +300,15 @@ export async function undoMovement(warehouse: string, movementId: number): Promi
  * Per warehouse, like everything else here. A shared counter would leak how
  * busy the other side is through the gaps in your own numbers.
  */
-export async function nextRef(warehouse: string): Promise<{ next: string; from: string }> {
+export async function nextRef(
+  warehouse: string,
+  kind: "delivery" | "credit" = "delivery"
+): Promise<{ next: string; from: string }> {
+  // Each kind carries on its own run: credit note 12 follows credit note 11,
+  // not whichever delivery note happened to be saved last.
   const row = await one<{ ref: string }>(
-    "SELECT ref FROM invoices WHERE warehouse = $1 ORDER BY id DESC LIMIT 1",
-    [warehouse]
+    "SELECT ref FROM invoices WHERE warehouse = $1 AND kind = $2 ORDER BY id DESC LIMIT 1",
+    [warehouse, kind]
   );
 
   const from = row?.ref.trim() ?? "";
@@ -323,10 +328,15 @@ export async function nextRef(warehouse: string): Promise<{ next: string; from: 
   return { next: prefix + next, from };
 }
 
-export async function invoiceRefUsed(warehouse: string, ref: string): Promise<Invoice | null> {
+export async function invoiceRefUsed(
+  warehouse: string,
+  ref: string,
+  kind: "delivery" | "credit" = "delivery"
+): Promise<Invoice | null> {
   return one<Invoice>(
-    "SELECT * FROM invoices WHERE warehouse = $1 AND lower(ref) = lower($2) ORDER BY id DESC LIMIT 1",
-    [warehouse, ref.trim()]
+    `SELECT * FROM invoices WHERE warehouse = $1 AND lower(ref) = lower($2) AND kind = $3
+     ORDER BY id DESC LIMIT 1`,
+    [warehouse, ref.trim(), kind]
   );
 }
 
@@ -341,13 +351,23 @@ export const getInvoice = cache(
     one<Invoice>("SELECT * FROM invoices WHERE warehouse = $1 AND id = $2", [warehouse, id])
 );
 
-/** Create a delivery note and reduce stock for every line — all or nothing. */
+/**
+ * Create a delivery note (stock out) or a credit note (returned stock back in)
+ * for every line — all or nothing.
+ */
 export async function createInvoice(
   warehouse: string,
-  input: { ref: string; customer: string; lines: InvoiceLine[] }
+  input: { ref: string; customer: string; lines: InvoiceLine[]; kind?: "delivery" | "credit" }
 ): Promise<number> {
+  const kind = input.kind === "credit" ? "credit" : "delivery";
+  // +1 puts stock back, -1 takes it out.
+  const direction = kind === "credit" ? 1 : -1;
   const ref = input.ref.trim();
-  if (!ref) throw new AppError("Delivery note number is required");
+  if (!ref) {
+    throw new AppError(
+      kind === "credit" ? "Credit note number is required" : "Delivery note number is required"
+    );
+  }
   if (input.lines.length === 0) throw new AppError("Add at least one product");
 
   return transaction(async (client) => {
@@ -363,7 +383,8 @@ export async function createInvoice(
       const product = rows[0];
       if (!product) throw new AppError("A product on this delivery note no longer exists");
       if (line.quantity <= 0) throw new AppError("Quantity must be at least 1");
-      if (line.quantity > product.quantity) {
+      // Returned stock can always be taken back; only going out can run short.
+      if (kind === "delivery" && line.quantity > product.quantity) {
         const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
         shortages.push(`${label} — only ${product.quantity} left`);
       }
@@ -373,18 +394,26 @@ export async function createInvoice(
     }
 
     const created = await client.query<{ id: number }>(
-      `INSERT INTO invoices (warehouse, ref, customer, status, created_at)
-       VALUES ($1, $2, $3, 'active', $4) RETURNING id`,
-      [warehouse, ref, input.customer.trim(), now()]
+      `INSERT INTO invoices (warehouse, ref, customer, status, kind, created_at)
+       VALUES ($1, $2, $3, 'active', $4, $5) RETURNING id`,
+      [warehouse, ref, input.customer.trim(), kind, now()]
     );
     const invoiceId = created.rows[0].id;
 
     for (const line of input.lines) {
       await client.query(
-        "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
-        [line.quantity, warehouse, line.productId]
+        "UPDATE products SET quantity = quantity + $1 WHERE warehouse = $2 AND id = $3",
+        [direction * line.quantity, warehouse, line.productId]
       );
-      await logMovement(client, warehouse, line.productId, -line.quantity, "invoice", ref, invoiceId);
+      await logMovement(
+        client,
+        warehouse,
+        line.productId,
+        direction * line.quantity,
+        kind === "credit" ? "credit" : "invoice",
+        ref,
+        invoiceId
+      );
     }
 
     return invoiceId;
@@ -409,7 +438,21 @@ export async function cancelInvoice(warehouse: string, invoiceId: number): Promi
     );
 
     for (const line of lines) {
-      // line.change is negative, so subtracting it adds the stock back.
+      // Cancelling a delivery note adds stock back; cancelling a credit note
+      // takes it out again, which is only possible if it is still on the shelf.
+      const held = await client.query<Product>(
+        "SELECT * FROM products WHERE warehouse = $1 AND id = $2 FOR UPDATE",
+        [warehouse, line.product_id]
+      );
+      const product = held.rows[0];
+      if (product && product.quantity - line.change < 0) {
+        const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
+        throw new AppError(
+          `Cannot cancel — ${label} has only ${product.quantity} in stock, but ${line.change} came back on this credit note`
+        );
+      }
+
+      // line.change is negative for a delivery, so subtracting it adds the stock back.
       await client.query(
         "UPDATE products SET quantity = quantity - $1 WHERE warehouse = $2 AND id = $3",
         [line.change, warehouse, line.product_id]

@@ -69,6 +69,13 @@ const MIGRATIONS: string[] = [
     ADD COLUMN batch_no TEXT NOT NULL DEFAULT '',
     ADD COLUMN expiry   TEXT NOT NULL DEFAULT '';
   `,
+
+  // v3 — credit notes share the invoices table with delivery notes: same
+  // number, customer, lines and cancel, but the stock goes the other way.
+  // Existing rows are all delivery notes.
+  `
+  ALTER TABLE invoices ADD COLUMN kind TEXT NOT NULL DEFAULT 'delivery';
+  `,
 ];
 
 /** Where the schema version lives. Postgres has no PRAGMA user_version. */

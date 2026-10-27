@@ -20,12 +20,14 @@ export interface Invoice {
   ref: string;
   customer: string;
   status: "active" | "cancelled";
+  /** A delivery note takes stock out; a credit note puts returned stock back. */
+  kind: "delivery" | "credit";
   created_at: string;
   cancelled_at: string | null;
 }
 
 /** Why the stock changed. Drives the wording and icon shown in History. */
-export type Reason = "new" | "in" | "out" | "invoice" | "adjust" | "cancel" | "undo";
+export type Reason = "new" | "in" | "out" | "invoice" | "credit" | "adjust" | "cancel" | "undo";
 
 export interface Movement {
   id: number;

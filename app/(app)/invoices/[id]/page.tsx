@@ -21,7 +21,8 @@ export async function generateMetadata({
 
   const { id } = await params;
   const invoice = await getInvoice(warehouse.key, Number(id));
-  return { title: invoice ? `Delivery note ${invoice.ref}` : "Delivery note" };
+  if (!invoice) return { title: "Delivery note" };
+  return { title: `${invoice.kind === "credit" ? "Credit note" : "Delivery note"} ${invoice.ref}` };
 }
 
 export default async function InvoicePage({ params }: PageProps<"/invoices/[id]">) {
@@ -33,7 +34,10 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
 
   return (
     <div className="md:max-w-2xl">
-      <PageHeader title="Delivery note" back="/invoices" />
+      <PageHeader
+        title={found.invoice.kind === "credit" ? "Credit note" : "Delivery note"}
+        back="/invoices"
+      />
       <InvoiceDetail invoice={found.invoice} lines={found.lines} units={found.units} />
     </div>
   );

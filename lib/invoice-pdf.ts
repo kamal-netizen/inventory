@@ -51,14 +51,16 @@ export function buildInvoicePdf(input: {
 }): Promise<Buffer> {
   const { warehouseName, invoice, lines, units } = input;
   const cancelled = invoice.status === "cancelled";
+  const credit = invoice.kind === "credit";
+  const title = credit ? "Credit note" : "Delivery note";
 
   const doc = new PDFDocument({
     size: "A4",
     margin: MARGIN,
     info: {
-      Title: `Delivery note ${invoice.ref}`,
+      Title: `${title} ${invoice.ref}`,
       Author: warehouseName,
-      Subject: `Stock issued against ${invoice.ref}`,
+      Subject: credit ? `Stock returned against ${invoice.ref}` : `Stock issued against ${invoice.ref}`,
     },
   });
 
@@ -100,7 +102,7 @@ export function buildInvoicePdf(input: {
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED)
-    .text("DELIVERY NOTE", textLeft, doc.y + 2, { characterSpacing: 1.2 });
+    .text(title.toUpperCase(), textLeft, doc.y + 2, { characterSpacing: 1.2 });
 
   const afterName = doc.y;
 
@@ -211,7 +213,7 @@ export function buildInvoicePdf(input: {
       .text(
         `This note was cancelled${
           invoice.cancelled_at ? ` on ${formatFullDate(invoice.cancelled_at)}` : ""
-        } and all ${units} units were returned to stock.`,
+        } and all ${units} units were ${credit ? "taken back out of stock" : "returned to stock"}.`,
         MARGIN,
         doc.y,
         { width: contentWidth }
@@ -225,7 +227,9 @@ export function buildInvoicePdf(input: {
     .fontSize(8)
     .fillColor(MUTED)
     .text(
-      "Quantities are units issued from stock. This note does not show prices and is not a tax invoice.",
+      credit
+        ? "Quantities are units returned into stock. This note does not show prices and is not a tax document."
+        : "Quantities are units issued from stock. This note does not show prices and is not a tax invoice.",
       MARGIN,
       doc.page.height - MARGIN - 12,
       { width: contentWidth }
