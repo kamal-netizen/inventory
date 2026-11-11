@@ -192,8 +192,8 @@ export default function InvoiceList({
         )}
       </div>
 
-      {audit && (
-        <div className="card mb-3 p-4">
+      {ranged && audit && (
+        <div className="card mb-3 p-5">
           <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">
             For this range
           </p>
