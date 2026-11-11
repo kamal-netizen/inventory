@@ -102,3 +102,46 @@ export function safeFilename(value: string): string {
   const illegal = new RegExp('[\\\\/:*?"<>|\\u0000-\\u001f]+', "g");
   return value.replace(illegal, " ").replace(/\s+/g, " ").trim().slice(0, 120);
 }
+
+/** `dateStr` (YYYY-MM-DD) shifted by `days` on the calendar — no timezone involved. */
+export function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** Minutes a UTC instant sits ahead of TIMEZONE's wall clock, e.g. 240 for Dubai. */
+function tzOffsetMinutes(instant: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+    .formatToParts(instant)
+    .reduce<Record<string, string>>((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+
+  const readAsUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return (readAsUtc - instant.getTime()) / 60000;
+}
+
+/**
+ * The UTC instant of local midnight at the start of `dateStr` (YYYY-MM-DD) in
+ * TIMEZONE, as an ISO string — so a date picked in Dubai turns into the right
+ * `created_at` boundary rather than UTC midnight on the same digits.
+ */
+export function startOfLocalDayUtc(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const guess = new Date(Date.UTC(y, m - 1, d));
+  return new Date(guess.getTime() - tzOffsetMinutes(guess) * 60000).toISOString();
+}

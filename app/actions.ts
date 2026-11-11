@@ -145,22 +145,36 @@ export async function createInvoiceAction(input: {
  * Paging for the stored-invoice list.
  *
  * `after` is the last row already on screen, or null to start again — which is
- * what a changed search term does, since it is a different list.
+ * what a changed search term or date range does, since it is a different list.
  */
 export async function loadInvoicesAction(
   search: string,
-  after: Cursor | null
-): Promise<Result<{ invoices: q.InvoiceSummary[]; hasMore: boolean; total: number | null }>> {
+  after: Cursor | null,
+  range: { from?: string; to?: string } = {}
+): Promise<
+  Result<{
+    invoices: q.InvoiceSummary[];
+    hasMore: boolean;
+    total: number | null;
+    audit: q.AuditSummary | null;
+  }>
+> {
   try {
     const warehouse = await requireWarehouse();
-    const page = await q.listInvoices(warehouse.key, { search, after });
+    const page = await q.listInvoices(warehouse.key, { search, after, ...range });
+    const fresh = !after;
+    // A date range with no notes still has movements worth auditing (every
+    // line comes from a note, but a note can be cancelled and undone), so the
+    // summary is its own query rather than something derived from the page.
+    const hasRange = Boolean(range.from || range.to);
     return {
       ok: true,
       invoices: page.rows,
       hasMore: page.hasMore,
       // Only a fresh list needs counting. Paging cannot change the total, and
       // recounting on every page is what let the button disagree with the rows.
-      total: after ? null : await q.countInvoices(warehouse.key, search),
+      total: fresh ? await q.countInvoices(warehouse.key, search, range) : null,
+      audit: fresh && hasRange ? await q.getAuditSummary(warehouse.key, range) : null,
     };
   } catch (err) {
     return fail(err);

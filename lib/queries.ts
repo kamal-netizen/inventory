@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { PoolClient } from "pg";
 import { now, one, query, transaction } from "./db";
+import { addDays, startOfLocalDayUtc } from "./format";
 import { PAGE, type Cursor, type Invoice, type InvoiceLine, type Movement, type Page, type Product, type Reason } from "./types";
 
 /**
@@ -31,6 +32,21 @@ function isDuplicate(err: unknown): boolean {
 
 /** count() and sum() come back as strings — they are bigint on the wire. */
 const int = (value: unknown): number => Number(value ?? 0);
+
+/**
+ * Turns a "YYYY-MM-DD" from/to picked on screen into the `created_at` bounds
+ * that cover those local calendar dates — `to` included, so picking the same
+ * day twice still catches everything raised that day. Either end may be
+ * missing for an open-ended range; a malformed date is treated as missing
+ * rather than breaking the query.
+ */
+function dateRangeBounds(from?: string, to?: string): { start: string | null; end: string | null } {
+  const isDate = (value?: string): value is string => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return {
+    start: isDate(from) ? startOfLocalDayUtc(from) : null,
+    end: isDate(to) ? startOfLocalDayUtc(addDays(to, 1)) : null,
+  };
+}
 
 /* ---------------------------------- products ---------------------------------- */
 
@@ -506,11 +522,12 @@ export interface InvoiceSummary extends Invoice {
 /** Every delivery note ever raised, newest first. Searchable by number or customer. */
 export async function listInvoices(
   warehouse: string,
-  options: { search?: string; limit?: number; after?: Cursor | null } = {}
+  options: { search?: string; limit?: number; after?: Cursor | null; from?: string; to?: string } = {}
 ): Promise<Page<InvoiceSummary>> {
   const search = (options.search ?? "").trim().toLowerCase();
   const limit = options.limit ?? PAGE;
   const after = options.after ?? null;
+  const range = dateRangeBounds(options.from, options.to);
 
   // One row past the page, so hasMore is observed rather than counted.
   const rows = await query<InvoiceSummary>(
@@ -520,10 +537,21 @@ export async function listInvoices(
      FROM invoices i
      WHERE i.warehouse = $1
        AND ($2 = '' OR lower(i.ref) LIKE $3 OR lower(i.customer) LIKE $3)
+       AND ($7::text IS NULL OR i.created_at >= $7)
+       AND ($8::text IS NULL OR i.created_at < $8)
        AND ${AFTER('$4', '$5', 'i')}
      ORDER BY i.created_at DESC, i.id DESC
      LIMIT $6`,
-    [warehouse, search, `%${search}%`, after?.created_at ?? null, after?.id ?? null, limit + 1]
+    [
+      warehouse,
+      search,
+      `%${search}%`,
+      after?.created_at ?? null,
+      after?.id ?? null,
+      limit + 1,
+      range.start,
+      range.end,
+    ]
   );
 
   return {
@@ -534,14 +562,80 @@ export async function listInvoices(
   };
 }
 
-export async function countInvoices(warehouse: string, search = ""): Promise<number> {
+export async function countInvoices(
+  warehouse: string,
+  search = "",
+  options: { from?: string; to?: string } = {}
+): Promise<number> {
   const trimmed = search.trim().toLowerCase();
+  const range = dateRangeBounds(options.from, options.to);
   const row = await one<{ n: string }>(
     `SELECT count(*) AS n FROM invoices
-     WHERE warehouse = $1 AND ($2 = '' OR lower(ref) LIKE $3 OR lower(customer) LIKE $3)`,
-    [warehouse, trimmed, `%${trimmed}%`]
+     WHERE warehouse = $1 AND ($2 = '' OR lower(ref) LIKE $3 OR lower(customer) LIKE $3)
+       AND ($4::text IS NULL OR created_at >= $4)
+       AND ($5::text IS NULL OR created_at < $5)`,
+    [warehouse, trimmed, `%${trimmed}%`, range.start, range.end]
   );
   return int(row?.n);
+}
+
+export interface AuditSummary {
+  /** Units that left on delivery notes. */
+  out: number;
+  /** Units that came back on credit notes, or were received as stock. */
+  in: number;
+  /** Units set aside as damaged. */
+  damaged: number;
+  /** Every change in the range added together — the true net movement. */
+  net: number;
+  /** Delivery notes and credit notes raised in the range, any status. */
+  deliveryNotes: number;
+  creditNotes: number;
+}
+
+/**
+ * Totals for an audit of one date range: how many units went out, came back,
+ * were set aside damaged, and the net of every change — undone movements
+ * excluded, since they never ended up affecting stock.
+ */
+export async function getAuditSummary(
+  warehouse: string,
+  options: { from?: string; to?: string } = {}
+): Promise<AuditSummary> {
+  const range = dateRangeBounds(options.from, options.to);
+
+  const totals = await one<{ out_units: string; in_units: string; damaged_units: string; net_units: string }>(
+    `SELECT
+       COALESCE(sum(CASE WHEN reason = 'invoice' THEN abs(change) ELSE 0 END), 0) AS out_units,
+       COALESCE(sum(CASE WHEN reason IN ('credit', 'in') THEN change ELSE 0 END), 0) AS in_units,
+       COALESCE(sum(CASE WHEN reason = 'damage' THEN abs(change) ELSE 0 END), 0) AS damaged_units,
+       COALESCE(sum(change), 0) AS net_units
+     FROM movements
+     WHERE warehouse = $1 AND undone = 0
+       AND ($2::text IS NULL OR created_at >= $2)
+       AND ($3::text IS NULL OR created_at < $3)`,
+    [warehouse, range.start, range.end]
+  );
+
+  const notes = await one<{ delivery: string; credit: string }>(
+    `SELECT
+       count(*) FILTER (WHERE kind = 'delivery') AS delivery,
+       count(*) FILTER (WHERE kind = 'credit') AS credit
+     FROM invoices
+     WHERE warehouse = $1
+       AND ($2::text IS NULL OR created_at >= $2)
+       AND ($3::text IS NULL OR created_at < $3)`,
+    [warehouse, range.start, range.end]
+  );
+
+  return {
+    out: int(totals?.out_units),
+    in: int(totals?.in_units),
+    damaged: int(totals?.damaged_units),
+    net: int(totals?.net_units),
+    deliveryNotes: int(notes?.delivery),
+    creditNotes: int(notes?.credit),
+  };
 }
 
 /** One note with every line on it, including lines whose product was later hidden. */
