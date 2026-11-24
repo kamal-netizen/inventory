@@ -109,6 +109,43 @@ export function addDays(dateStr: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+const PERIODS = ["daily", "weekly", "monthly"] as const;
+export type ReportPeriod = (typeof PERIODS)[number];
+
+export function isReportPeriod(value: string | null): value is ReportPeriod {
+  return PERIODS.some((period) => period === value);
+}
+
+/** The first and last day of the day, Monday-to-Sunday week or month `dateStr` falls in. */
+export function reportRange(period: ReportPeriod, dateStr: string): { from: string; to: string } {
+  if (period === "daily") return { from: dateStr, to: dateStr };
+  if (period === "weekly") {
+    const sinceMonday = (new Date(`${dateStr}T00:00:00Z`).getUTCDay() + 6) % 7;
+    const from = addDays(dateStr, -sinceMonday);
+    return { from, to: addDays(from, 6) };
+  }
+  const [year, month] = dateStr.split("-").map(Number);
+  return {
+    from: `${dateStr.slice(0, 7)}-01`,
+    // Day 0 of next month is the last day of this one.
+    to: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
+  };
+}
+
+const REASON_LABEL: Record<string, string> = {
+  new: "Added to list",
+  in: "Stock in",
+  out: "Stock out",
+  adjust: "Adjusted",
+  invoice: "Delivery note",
+  credit: "Credit note",
+  damage: "Damaged",
+};
+
+export function reasonLabel(reason: string): string {
+  return REASON_LABEL[reason] ?? "Changed";
+}
+
 /** Minutes a UTC instant sits ahead of TIMEZONE's wall clock, e.g. 240 for Dubai. */
 function tzOffsetMinutes(instant: Date): number {
   const parts = new Intl.DateTimeFormat("en-US", {

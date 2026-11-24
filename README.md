@@ -47,7 +47,8 @@ npm run unlock
   unfinished note survives navigating away or reloading.
 - **Delivery notes** — every note ever raised, kept permanently. Searchable by number or
   customer, paged 50 at a time. Open one to see its lines, download a PDF, or cancel it
-  (which puts all its stock back and marks it cancelled rather than deleting it).
+  (which puts all its stock back and marks it cancelled rather than deleting it). Pick a
+  date to download a daily, weekly (Monday to Sunday) or monthly Excel report.
 - **History** — the full movement log, newest first, grouped by day and paged. Note
   lines link through to the stored document. Undo any manual change. Nothing is ever
   deleted.
@@ -70,6 +71,7 @@ app/
   login/                     number pad
   api/import-template/       blank .xlsx download
   api/invoices/[id]/pdf/     delivery note PDF
+  api/reports/               daily, weekly or monthly .xlsx report
   (app)/                     everything behind the PIN
     page.tsx                 stock list
     products/                add, edit, import
@@ -83,6 +85,7 @@ lib/
   auth.ts                    PIN check, session cookie, lockout
   import.ts                  spreadsheet parsing
   invoice-pdf.ts             PDF generation
+  report.ts                  Excel report generation
 ```
 
 `lib/queries.ts` is the isolation boundary: every function takes a warehouse key and

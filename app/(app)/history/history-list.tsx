@@ -5,19 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadHistoryAction, undoMovementAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
-import { dayKey, formatFullDate, formatTime, productLabel } from "@/lib/format";
+import { dayKey, formatFullDate, formatTime, productLabel, reasonLabel } from "@/lib/format";
 import type { MovementRow } from "@/lib/queries";
 import { PAGE } from "@/lib/types";
-
-const REASON_LABEL: Record<string, string> = {
-  new: "Added to list",
-  in: "Stock in",
-  out: "Stock out",
-  adjust: "Adjusted",
-  invoice: "Delivery note",
-  credit: "Credit note",
-  damage: "Damaged",
-};
 
 export default function HistoryList({
   initial,
@@ -138,7 +128,7 @@ export default function HistoryList({
                         </>
                       ) : (
                         <>
-                          {REASON_LABEL[row.reason] ?? "Changed"}
+                          {reasonLabel(row.reason)}
                           {row.ref ? ` · ${row.ref}` : ""}
                         </>
                       )}

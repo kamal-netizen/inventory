@@ -579,6 +579,13 @@ export async function countInvoices(
   return int(row?.n);
 }
 
+/** Shared, so the totals of an audit and its per-product lines can never disagree. */
+const AUDIT_SUMS = `
+       COALESCE(sum(CASE WHEN m.reason = 'invoice' THEN abs(m.change) ELSE 0 END), 0) AS out_units,
+       COALESCE(sum(CASE WHEN m.reason IN ('credit', 'in') THEN m.change ELSE 0 END), 0) AS in_units,
+       COALESCE(sum(CASE WHEN m.reason = 'damage' THEN abs(m.change) ELSE 0 END), 0) AS damaged_units,
+       COALESCE(sum(m.change), 0) AS net_units`;
+
 export interface AuditSummary {
   /** Units that left on delivery notes. */
   out: number;
@@ -605,15 +612,11 @@ export async function getAuditSummary(
   const range = dateRangeBounds(options.from, options.to);
 
   const totals = await one<{ out_units: string; in_units: string; damaged_units: string; net_units: string }>(
-    `SELECT
-       COALESCE(sum(CASE WHEN reason = 'invoice' THEN abs(change) ELSE 0 END), 0) AS out_units,
-       COALESCE(sum(CASE WHEN reason IN ('credit', 'in') THEN change ELSE 0 END), 0) AS in_units,
-       COALESCE(sum(CASE WHEN reason = 'damage' THEN abs(change) ELSE 0 END), 0) AS damaged_units,
-       COALESCE(sum(change), 0) AS net_units
-     FROM movements
-     WHERE warehouse = $1 AND undone = 0
-       AND ($2::text IS NULL OR created_at >= $2)
-       AND ($3::text IS NULL OR created_at < $3)`,
+    `SELECT ${AUDIT_SUMS}
+     FROM movements m
+     WHERE m.warehouse = $1 AND m.undone = 0
+       AND ($2::text IS NULL OR m.created_at >= $2)
+       AND ($3::text IS NULL OR m.created_at < $3)`,
     [warehouse, range.start, range.end]
   );
 
@@ -636,6 +639,51 @@ export async function getAuditSummary(
     deliveryNotes: int(notes?.delivery),
     creditNotes: int(notes?.credit),
   };
+}
+
+export interface ProductAudit {
+  brand: string;
+  name: string;
+  flavor: string;
+  out: number;
+  in: number;
+  damaged: number;
+  net: number;
+}
+
+/** getAuditSummary's unit totals broken down by product. */
+export async function listProductAudit(
+  warehouse: string,
+  options: { from?: string; to?: string } = {}
+): Promise<ProductAudit[]> {
+  const range = dateRangeBounds(options.from, options.to);
+  const rows = await query<{
+    brand: string;
+    name: string;
+    flavor: string;
+    out_units: string;
+    in_units: string;
+    damaged_units: string;
+    net_units: string;
+  }>(
+    `SELECT p.brand, p.name, p.flavor, ${AUDIT_SUMS}
+     FROM movements m JOIN products p ON p.id = m.product_id
+     WHERE m.warehouse = $1 AND m.undone = 0
+       AND ($2::text IS NULL OR m.created_at >= $2)
+       AND ($3::text IS NULL OR m.created_at < $3)
+     GROUP BY p.id, p.brand, p.name, p.flavor
+     ORDER BY lower(p.brand), lower(p.name), lower(p.flavor)`,
+    [warehouse, range.start, range.end]
+  );
+  return rows.map((row) => ({
+    brand: row.brand,
+    name: row.name,
+    flavor: row.flavor,
+    out: int(row.out_units),
+    in: int(row.in_units),
+    damaged: int(row.damaged_units),
+    net: int(row.net_units),
+  }));
 }
 
 /** One note with every line on it, including lines whose product was later hidden. */
@@ -873,10 +921,11 @@ export async function removeDamaged(warehouse: string, id: number): Promise<void
  */
 export async function listMovements(
   warehouse: string,
-  options: { limit?: number; after?: Cursor | null } = {}
+  options: { limit?: number; after?: Cursor | null; from?: string; to?: string } = {}
 ): Promise<Page<MovementRow>> {
   const limit = options.limit ?? PAGE;
   const after = options.after ?? null;
+  const range = dateRangeBounds(options.from, options.to);
 
   // One row past the page, so hasMore is observed rather than counted.
   const rows = await query<MovementRow>(
@@ -886,10 +935,19 @@ export async function listMovements(
      JOIN products p ON p.id = m.product_id
      LEFT JOIN invoices i ON i.id = m.invoice_id
      WHERE m.warehouse = $1
+       AND ($5::text IS NULL OR m.created_at >= $5)
+       AND ($6::text IS NULL OR m.created_at < $6)
        AND ${AFTER('$2', '$3', 'm')}
      ORDER BY m.created_at DESC, m.id DESC
      LIMIT $4`,
-    [warehouse, after?.created_at ?? null, after?.id ?? null, limit + 1]
+    [
+      warehouse,
+      after?.created_at ?? null,
+      after?.id ?? null,
+      limit + 1,
+      range.start,
+      range.end,
+    ]
   );
 
   return { rows: rows.slice(0, limit), hasMore: rows.length > limit };

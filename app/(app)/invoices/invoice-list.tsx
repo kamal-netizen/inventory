@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { loadInvoicesAction } from "@/app/actions";
-import { dayKey, formatDay, formatTime } from "@/lib/format";
+import { dayKey, formatDay, formatExpiry, formatTime, reportRange } from "@/lib/format";
 import type { AuditSummary, InvoiceSummary } from "@/lib/queries";
 import { PAGE } from "@/lib/types";
 
@@ -28,6 +28,8 @@ export default function InvoiceList({
   const [search, setSearch] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const today = dayKey(new Date().toISOString());
+  const [reportDay, setReportDay] = useState(today);
   const [invoices, setInvoices] = useState(initial);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [total, setTotal] = useState(initialTotal);
@@ -190,6 +192,63 @@ export default function InvoiceList({
             Clear dates
           </button>
         )}
+      </div>
+
+      <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:overflow-visible md:px-0">
+        <label className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-[14px] font-medium">
+          Report for
+          <input
+            type="date"
+            value={reportDay}
+            max={today}
+            onChange={(event) => {
+              // Blank, or a year typed past four digits, is no day to report on.
+              if (event.target.value.length === 10) setReportDay(event.target.value);
+            }}
+            aria-label="Report for date"
+            className="bg-transparent outline-none"
+          />
+        </label>
+
+        {(
+          [
+            ["Daily", "daily"],
+            ["Weekly", "weekly"],
+            ["Monthly", "monthly"],
+          ] as const
+        ).map(([label, period]) => {
+          const range = reportRange(period, reportDay);
+          const covers =
+            range.from === range.to
+              ? formatExpiry(range.from)
+              : `${formatExpiry(range.from)} to ${formatExpiry(range.to)}`;
+          return (
+            <a
+              key={period}
+              href={`/api/reports?period=${period}&date=${reportDay}`}
+              title={covers}
+              aria-label={`Download ${label.toLowerCase()} report, ${covers}`}
+              className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-line bg-surface
+                         px-3 text-[14px] font-medium text-muted transition hover:text-ink"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 4v11m0 0-4-4m4 4 4-4" />
+                <path d="M5 19h14" />
+              </svg>
+              {label}
+            </a>
+          );
+        })}
       </div>
 
       {ranged && audit && (
