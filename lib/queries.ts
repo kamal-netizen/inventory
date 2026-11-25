@@ -583,7 +583,7 @@ export async function countInvoices(
 const AUDIT_SUMS = `
        COALESCE(sum(CASE WHEN m.reason = 'invoice' THEN abs(m.change) ELSE 0 END), 0) AS out_units,
        COALESCE(sum(CASE WHEN m.reason IN ('credit', 'in') THEN m.change ELSE 0 END), 0) AS in_units,
-       COALESCE(sum(CASE WHEN m.reason = 'damage' THEN abs(m.change) ELSE 0 END), 0) AS damaged_units,
+       COALESCE(sum(CASE WHEN m.reason = 'damage' THEN -m.change ELSE 0 END), 0) AS damaged_units,
        COALESCE(sum(m.change), 0) AS net_units`;
 
 export interface AuditSummary {
@@ -591,7 +591,7 @@ export interface AuditSummary {
   out: number;
   /** Units that came back on credit notes, or were received as stock. */
   in: number;
-  /** Units set aside as damaged. */
+  /** Units set aside as damaged, less any taken back off — negative if more came off than went on. */
   damaged: number;
   /** Every change in the range added together — the true net movement. */
   net: number;
