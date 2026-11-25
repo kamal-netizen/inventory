@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { removeDamagedAction } from "@/app/actions";
 import Confirm from "@/components/confirm";
 import { useToast } from "@/components/toast";
-import { formatDay, productLabel } from "@/lib/format";
+import { formatDay, plural, productLabel } from "@/lib/format";
 import type { DamagedRow } from "@/lib/queries";
 
 /** Every typed word has to turn up in the product, credit note number or customer. */
@@ -72,13 +72,28 @@ export default function DamagedList({ rows }: { rows: DamagedRow[] }) {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search product, credit note or customer"
             aria-label="Search damaged products"
-            className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-4 outline-none
+            className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-11 text-ellipsis outline-none
                        placeholder:text-muted focus:border-brand"
           />
+          {search && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2.5 text-muted
+                         transition hover:bg-page"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <Link
           href="/damaged/new"
+          aria-label="Add damaged products"
           className="flex shrink-0 items-center gap-2 rounded-2xl bg-brand px-5 font-semibold
                      text-white transition hover:opacity-90"
         >
@@ -93,8 +108,8 @@ export default function DamagedList({ rows }: { rows: DamagedRow[] }) {
         {rows.length === 0
           ? "Nothing kept aside"
           : search
-            ? `${visibleUnits} damaged units in ${visible.length} of ${rows.length} entries`
-            : `${totalUnits} damaged units in ${rows.length} ${rows.length === 1 ? "entry" : "entries"}`}
+            ? `${plural(visibleUnits, "damaged unit")} in ${visible.length} of ${rows.length} ${rows.length === 1 ? "entry" : "entries"}`
+            : `${plural(totalUnits, "damaged unit")} in ${rows.length} ${rows.length === 1 ? "entry" : "entries"}`}
       </p>
 
       {visible.length === 0 ? (
@@ -122,7 +137,7 @@ export default function DamagedList({ rows }: { rows: DamagedRow[] }) {
                 <span className="mt-0.5 block truncate text-[14px] text-muted">
                   <Link
                     href={`/invoices/${row.invoice_id}`}
-                    className="font-medium text-brand hover:underline"
+                    className="font-medium text-brand hover:underline focus-visible:-outline-offset-2"
                   >
                     {row.invoice_ref}
                   </Link>
@@ -137,7 +152,7 @@ export default function DamagedList({ rows }: { rows: DamagedRow[] }) {
               <button
                 type="button"
                 onClick={() => setRemoving(row)}
-                className="shrink-0 rounded-xl px-3 py-2 text-[14px] font-semibold text-muted
+                className="h-10 shrink-0 rounded-xl px-3 text-[14px] font-semibold text-muted
                            transition hover:bg-page hover:text-ink"
               >
                 Remove
@@ -153,7 +168,7 @@ export default function DamagedList({ rows }: { rows: DamagedRow[] }) {
           body={`${removing.quantity} × ${productLabel(
             removing.product_name,
             removing.product_flavor
-          )} go back into stock. Use this only if it was entered by mistake.`}
+          )} will go back into stock. Use this only if it was entered by mistake.`}
           cancelLabel="Keep it"
           confirmLabel="Put back in stock"
           pending={pending}

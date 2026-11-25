@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addDamagedAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
-import { formatDay, productLabel } from "@/lib/format";
+import { formatDay, plural, productLabel } from "@/lib/format";
 import type { CreditLine, CreditNoteChoice } from "@/lib/queries";
 import type { Invoice } from "@/lib/types";
 
@@ -54,15 +54,34 @@ export function CreditNotePicker({ choices }: { choices: CreditNoteChoice[] }) {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search credit note number or customer"
           aria-label="Search credit notes"
-          className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-4 outline-none
+          className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-11 text-ellipsis outline-none
                      placeholder:text-muted focus:border-brand"
         />
+        {search && (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2.5 text-muted
+                       transition hover:bg-page"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {visible.length === 0 ? (
-        <p className="mt-6 text-center text-[15px] text-muted">No credit note matches.</p>
+        <div className="card mt-2 px-6 py-12 text-center">
+          <p className="text-[17px] font-semibold">Nothing found</p>
+          <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
+            Try part of the credit note number or the customer name.
+          </p>
+        </div>
       ) : (
-        <ul className="mt-2 space-y-1.5">
+        <ul className="mt-2 space-y-2">
           {visible.map((choice) => (
             <li key={choice.id}>
               <Link
@@ -72,10 +91,24 @@ export function CreditNotePicker({ choices }: { choices: CreditNoteChoice[] }) {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{choice.ref}</span>
                   <span className="mt-0.5 block truncate text-[14px] text-muted">
-                    {choice.customer || "No customer"} · {choice.units} units back
+                    {choice.customer || "No customer"} · {plural(choice.units, "unit")} back
                   </span>
                 </span>
                 <span className="shrink-0 text-[13px] text-muted">{formatDay(choice.created_at)}</span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0 text-muted/60"
+                  aria-hidden="true"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg>
               </Link>
             </li>
           ))}
@@ -192,13 +225,13 @@ export function DamagedEntry({ invoice, lines }: { invoice: Invoice; lines: Cred
         className="tap mt-4 w-full rounded-2xl bg-brand text-[17px] font-semibold text-white
                    transition hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
       >
-        {entered.length === 0 ? "Save" : `Save — ${total} damaged`}
+        {pending ? "Saving…" : entered.length === 0 ? "Save" : `Save — ${total} damaged`}
       </button>
 
       <Link
         href="/damaged/new"
-        className="tap mt-2 flex w-full items-center justify-center rounded-2xl text-[15px] font-medium
-                   text-muted transition hover:text-ink"
+        className="tap mt-2 flex w-full items-center justify-center rounded-2xl border border-line bg-surface
+                   font-semibold transition hover:border-brand hover:text-brand"
       >
         Choose a different credit note
       </Link>

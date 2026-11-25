@@ -22,6 +22,8 @@
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
+
+  --shadow-card: 0 1px 2px rgb(18 24 32 / 0.05);
 }
 
 html {
@@ -44,11 +46,35 @@ a,
   touch-action: manipulation;
 }
 
-/* iOS zooms the page if an input is under 16px. */
-input,
-select,
-textarea {
-  font-size: 17px;
+/* In the base layer so a page's own classes still win. */
+@layer base {
+  /* iOS zooms the page if an input is under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 17px;
+  }
+
+  :is(button, select):not(:disabled),
+  input[type="checkbox"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :is(a, button, input[type="checkbox"]):focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  :is(input:not([type="checkbox"]), select):focus {
+    box-shadow: 0 0 0 3px var(--color-brand-soft);
+  }
+
+  /* A phone has no hover, so a press has to show for itself. */
+  :is(a, button):not(:disabled):active {
+    opacity: 0.8;
+  }
 }
 
 input[type="number"]::-webkit-outer-spin-button,
@@ -64,6 +90,7 @@ input[type="number"] {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: 14px;
+  box-shadow: var(--shadow-card);
 }
 
 /* Every tappable thing is at least this tall — thumbs, not cursors. */
@@ -102,4 +129,11 @@ input[type="number"] {
 
 .animate-shake {
   animation: shake 0.4s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-shake {
+    animation: none;
+  }
 }

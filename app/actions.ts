@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { attemptLogin, endSession, requireWarehouse } from "@/lib/auth";
+import { plural } from "@/lib/format";
 import * as q from "@/lib/queries";
 import type { Cursor, InvoiceLine } from "@/lib/types";
 
@@ -25,7 +26,7 @@ export async function loginAction(pin: string): Promise<Result> {
   if (result.ok) return { ok: true };
 
   if (result.reason === "locked") {
-    return { ok: false, error: `Too many wrong tries. Try again in ${result.minutes} minutes.` };
+    return { ok: false, error: `Too many wrong tries. Try again in ${plural(result.minutes, "minute")}.` };
   }
   if (result.triesLeft === 0) {
     const minutes = "minutes" in result ? result.minutes : 15;

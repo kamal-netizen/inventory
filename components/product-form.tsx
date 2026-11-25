@@ -43,6 +43,7 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [hiding, startHiding] = useTransition();
 
   /**
    * The brands on offer, plus this product's own.
@@ -106,7 +107,7 @@ export default function ProductForm({
   }
 
   function remove() {
-    startTransition(async () => {
+    startHiding(async () => {
       const result = await hideProductAction(product!.id);
       if (!result.ok) {
         toast({ message: result.error, tone: "error" });
@@ -151,8 +152,8 @@ export default function ProductForm({
                 setTypingBrand(false);
                 setBrand("");
               }}
-              className="h-14 shrink-0 rounded-2xl border border-line px-4 font-medium text-muted
-                         transition hover:text-ink"
+              className="h-14 shrink-0 rounded-2xl border border-line bg-surface px-4 font-semibold
+                         transition hover:border-brand hover:text-brand"
             >
               Cancel
             </button>
@@ -246,7 +247,7 @@ export default function ProductForm({
       </div>
 
       {error && (
-        <p role="alert" className="rounded-2xl bg-danger-soft px-4 py-3 text-[15px] text-danger">
+        <p role="alert" className="whitespace-pre-line rounded-2xl bg-danger-soft px-4 py-3 text-[15px] text-danger">
           {error}
         </p>
       )}
@@ -254,11 +255,11 @@ export default function ProductForm({
       <button
         type="button"
         onClick={save}
-        disabled={pending}
+        disabled={pending || hiding}
         className="tap w-full rounded-2xl bg-brand text-[17px] font-semibold text-white
-                   transition hover:opacity-90 disabled:opacity-60"
+                   transition hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
       >
-        {editing ? "Save changes" : "Add product"}
+        {pending ? "Saving…" : editing ? "Save changes" : "Add product"}
       </button>
 
       {editing && (
@@ -266,7 +267,9 @@ export default function ProductForm({
           <button
             type="button"
             onClick={() => setRemoving(true)}
-            className="tap w-full rounded-2xl text-[15px] font-medium text-danger transition hover:bg-danger-soft"
+            disabled={pending || hiding}
+            className="tap w-full rounded-2xl border border-line bg-surface font-semibold text-danger
+                       transition hover:bg-danger-soft disabled:opacity-60"
           >
             Remove from list
           </button>
@@ -278,7 +281,7 @@ export default function ProductForm({
               cancelLabel="Keep"
               confirmLabel="Remove"
               danger
-              pending={pending}
+              pending={hiding}
               onCancel={() => setRemoving(false)}
               onConfirm={remove}
             />

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useDialogFocus } from "./use-dialog-focus";
 
 /**
  * Renders into document.body rather than in place. A dialog nested inside a
  * positioned ancestor (the sticky header, for one) is trapped in that ancestor's
- * stacking context, and the bottom nav paints over its buttons.
+ * stacking context, and the bottom nav paints over its buttons. Only ever shown
+ * after a tap, so there is always a document to render into.
  */
 export default function Confirm({
   title,
@@ -27,9 +29,9 @@ export default function Confirm({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const titleId = useId();
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -39,27 +41,31 @@ export default function Confirm({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  if (!mounted) return null;
-
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
       onClick={onCancel}
     >
       <div
+        ref={dialog}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="animate-rise card w-full max-w-sm p-5"
+        aria-labelledby={titleId}
+        className="animate-rise card w-full max-w-sm p-5 outline-none"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 id={titleId} className="text-[19px] font-semibold leading-tight">
+          {title}
+        </h2>
         <p className="mt-1.5 text-[15px] leading-snug text-muted">{body}</p>
 
         <div className="mt-5 flex gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="tap flex-1 rounded-xl border border-line font-semibold active:bg-page"
+            className="tap flex-1 rounded-2xl border border-line bg-surface font-semibold transition
+                       hover:border-brand hover:text-brand"
           >
             {cancelLabel}
           </button>
@@ -67,11 +73,11 @@ export default function Confirm({
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className={`tap flex-1 rounded-xl font-semibold text-white active:opacity-90 disabled:opacity-60 ${
+            className={`tap flex-1 rounded-2xl font-semibold text-white transition hover:opacity-90 disabled:opacity-60 ${
               danger ? "bg-danger" : "bg-ink"
             }`}
           >
-            {confirmLabel}
+            {pending ? "Please wait…" : confirmLabel}
           </button>
         </div>
       </div>

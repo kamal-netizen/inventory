@@ -11,7 +11,7 @@ export default async function DamagedPage() {
   const warehouse = await requireWarehouse();
   return (
     <div className="md:max-w-3xl">
-      <h1 className="mb-4 text-[19px] font-semibold md:text-[22px]">Damaged</h1>
+      <h1 className="mb-4 text-[22px] font-semibold leading-tight tracking-tight md:text-[24px]">Damaged</h1>
       <DamagedList rows={await listDamaged(warehouse.key)} />
     </div>
   );

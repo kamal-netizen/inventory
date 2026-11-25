@@ -41,11 +41,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4">
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 md:bottom-6 md:left-60">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            role="status"
+            role={toast.tone === "error" ? "alert" : "status"}
             className={`animate-rise pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl px-4 py-3
                         text-[15px] leading-snug shadow-[0_8px_24px_rgba(18,24,32,0.18)] ${
                           toast.tone === "error" ? "bg-danger text-white" : "bg-ink text-white"
@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   dismiss(toast.id);
                   await toast.undo?.();
                 }}
-                className="shrink-0 rounded-lg bg-white/15 px-3 py-2 font-semibold active:bg-white/25"
+                className="shrink-0 rounded-xl bg-white/15 px-3 py-2 font-semibold transition hover:bg-white/25"
               >
                 Undo
               </button>
@@ -70,7 +70,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => dismiss(toast.id)}
               aria-label="Dismiss"
-              className="shrink-0 rounded-lg p-2 text-white/70 active:bg-white/15"
+              className="shrink-0 rounded-xl p-2 text-white/70 transition hover:bg-white/15 hover:text-white"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />

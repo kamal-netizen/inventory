@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { cancelInvoiceAction } from "@/app/actions";
 import Confirm from "@/components/confirm";
 import { useToast } from "@/components/toast";
-import { formatFullDate, formatTime, productLabel } from "@/lib/format";
+import { formatFullDate, formatTime, plural, productLabel } from "@/lib/format";
 import type { MovementRow } from "@/lib/queries";
 import type { Invoice } from "@/lib/types";
 
@@ -50,7 +50,7 @@ export default function InvoiceDetail({
       <div className="card p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className={`text-[22px] font-semibold ${cancelled ? "text-muted line-through" : ""}`}>
+            <h2 className={`break-words text-[22px] font-semibold leading-tight ${cancelled ? "text-muted line-through" : ""}`}>
               {invoice.ref}
             </h2>
             {credit && (
@@ -63,7 +63,7 @@ export default function InvoiceDetail({
             </p>
           </div>
           {cancelled && (
-            <span className="shrink-0 rounded-lg bg-danger-soft px-2.5 py-1 text-[13px] font-semibold text-danger">
+            <span className="shrink-0 rounded-md bg-danger-soft px-1.5 py-0.5 text-[12px] font-semibold text-danger">
               Cancelled
             </span>
           )}
@@ -77,7 +77,7 @@ export default function InvoiceDetail({
           <div className="flex gap-2">
             <dt className="w-28 shrink-0 text-muted">Items</dt>
             <dd>
-              {lines.length} {lines.length === 1 ? "product" : "products"} · {units} units
+              {plural(lines.length, "product")} · {plural(units, "unit")}
             </dd>
           </div>
           {cancelled && invoice.cancelled_at && (
@@ -107,7 +107,7 @@ export default function InvoiceDetail({
                     {line.product_brand}
                   </span>
                 )}
-                <span className="block break-words">
+                <span className="block break-words font-medium">
                   {productLabel(line.product_name, line.product_flavor)}
                 </span>
               </span>
@@ -127,7 +127,7 @@ export default function InvoiceDetail({
       <a
         href={`/api/invoices/${invoice.id}/pdf`}
         className="tap flex w-full items-center justify-center gap-2 rounded-2xl bg-brand
-                   text-[16px] font-semibold text-white transition hover:opacity-90"
+                   text-[17px] font-semibold text-white transition hover:opacity-90"
       >
         <svg
           width="20"
@@ -150,23 +150,23 @@ export default function InvoiceDetail({
         <Link
           href={`/damaged/new?note=${invoice.id}`}
           className="tap flex w-full items-center justify-center rounded-2xl border border-line
-                     text-[15px] font-semibold transition hover:border-brand hover:text-brand"
+                     bg-surface font-semibold transition hover:border-brand hover:text-brand"
         >
           Add damaged products
         </Link>
       )}
 
       {cancelled ? (
-        <p className="rounded-2xl bg-page px-4 py-3 text-[15px] leading-snug text-muted">
-          This {noun} was cancelled and all {units} units{" "}
-          {credit ? "were taken back out of stock" : "went back into stock"}. It is kept here so the
-          record stays complete.
+        <p className="card px-4 py-3 text-[15px] leading-snug text-muted">
+          This {noun} was cancelled and {units === 1 ? "its 1 unit was" : `all ${units} units were`}{" "}
+          {credit ? "taken back out of stock" : "put back into stock"}. It is kept here so the record
+          stays complete.
         </p>
       ) : (
         <button
           type="button"
           onClick={() => setAsking(true)}
-          className="tap w-full rounded-2xl border border-line text-[15px] font-semibold text-danger
+          className="tap w-full rounded-2xl border border-line bg-surface font-semibold text-danger
                      transition hover:bg-danger-soft"
         >
           Cancel {noun}
@@ -176,11 +176,9 @@ export default function InvoiceDetail({
       {asking && (
         <Confirm
           title={`Cancel ${invoice.ref}?`}
-          body={
-            credit
-              ? `All ${units} units come back out of stock. The note stays here, marked cancelled.`
-              : `All ${units} units go back into stock. The note stays here, marked cancelled.`
-          }
+          body={`${units === 1 ? "The 1 unit goes" : `All ${units} units go`} back ${
+            credit ? "out of" : "into"
+          } stock. The note stays here, marked cancelled.`}
           cancelLabel="Keep it"
           confirmLabel="Cancel it"
           danger

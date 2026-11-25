@@ -4,7 +4,8 @@ const time = new Intl.DateTimeFormat("en-GB", {
   timeZone: TIMEZONE,
   hour: "numeric",
   minute: "2-digit",
-  hour12: true,
+  // Not hour12: Node 20 reads that as 0 to 11 for en-GB, so noon came out as "0:15 pm".
+  hourCycle: "h12",
 });
 
 const dayMonth = new Intl.DateTimeFormat("en-GB", {
@@ -56,6 +57,11 @@ const expiryDate = new Intl.DateTimeFormat("en-GB", {
 /** "12 Mar 2027", from a stored YYYY-MM-DD. UTC both ways, so the day never shifts. */
 export function formatExpiry(expiry: string): string {
   return expiryDate.format(new Date(`${expiry}T00:00:00Z`));
+}
+
+/** "1 unit", "12 units" */
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 /** "Whey Protein · Chocolate" */
@@ -130,6 +136,24 @@ export function reportRange(period: ReportPeriod, dateStr: string): { from: stri
     // Day 0 of next month is the last day of this one.
     to: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
   };
+}
+
+const utcPart = (options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options });
+const shortDay = utcPart({ day: "numeric" });
+const shortDayMonth = utcPart({ day: "numeric", month: "short" });
+const shortMonthYear = utcPart({ month: "short", year: "numeric" });
+
+/** The dates a report covers, short enough for a tile: "24 Nov", "23 – 29 Nov" or "Nov 2026". */
+export function reportDates(period: ReportPeriod, dateStr: string): string {
+  const range = reportRange(period, dateStr);
+  const from = new Date(`${range.from}T00:00:00Z`);
+  const to = new Date(`${range.to}T00:00:00Z`);
+
+  if (period === "daily") return shortDayMonth.format(from);
+  if (period === "monthly") return shortMonthYear.format(from);
+  const sameMonth = range.from.slice(0, 7) === range.to.slice(0, 7);
+  return `${(sameMonth ? shortDay : shortDayMonth).format(from)} – ${shortDayMonth.format(to)}`;
 }
 
 const REASON_LABEL: Record<string, string> = {

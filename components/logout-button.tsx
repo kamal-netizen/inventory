@@ -33,7 +33,7 @@ export default function LogoutButton() {
         type="button"
         onClick={() => setAsking(true)}
         aria-label="Log out"
-        className="-mr-2 rounded-xl p-2.5 text-muted active:bg-page"
+        className="-mr-2 rounded-xl p-2.5 text-muted transition hover:bg-page hover:text-ink"
       >
         <svg
           width="22"

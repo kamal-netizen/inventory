@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { loginAction } from "@/app/actions";
+import { plural } from "@/lib/format";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 export default function Keypad({ pinLength, lockedMinutes }: { pinLength: number; lockedMinutes: number }) {
   const router = useRouter();
   const [pin, setPin] = useState("");
-  const [error, setError] = useState(lockedMinutes > 0 ? `Locked. Try again in ${lockedMinutes} minutes.` : "");
+  const [error, setError] = useState(lockedMinutes > 0 ? `Locked. Try again in ${plural(lockedMinutes, "minute")}.` : "");
   const [shake, setShake] = useState(0);
   const [pending, startTransition] = useTransition();
 
@@ -61,7 +62,7 @@ export default function Keypad({ pinLength, lockedMinutes }: { pinLength: number
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-6 py-10">
-      <div className="mb-10 flex flex-col items-center">
+      <div className="mb-5 flex flex-col items-center">
         <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
@@ -73,11 +74,12 @@ export default function Keypad({ pinLength, lockedMinutes }: { pinLength: number
             <rect x="4" y="10" width="16" height="10" rx="2.5" fill="var(--color-brand)" />
           </svg>
         </div>
-        <h1 className="text-xl font-semibold">Enter PIN</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight">Enter PIN</h1>
 
         <div
           key={shake}
           className={`mt-7 flex gap-4 ${error && !pending ? "animate-shake" : ""}`}
+          role="img"
           aria-label={`${pin.length} of ${pinLength} digits entered`}
         >
           {Array.from({ length: pinLength }).map((_, index) => (
@@ -90,13 +92,12 @@ export default function Keypad({ pinLength, lockedMinutes }: { pinLength: number
           ))}
         </div>
 
+        {/* Holds its height while empty, so an error does not move the keys. */}
         <p
-          className={`mt-5 max-w-[17rem] text-center text-[15px] leading-snug ${
-            error ? "text-danger" : "text-transparent"
-          }`}
+          className="mt-5 min-h-[2.75em] max-w-[17rem] text-center text-[15px] leading-snug text-danger"
           role={error ? "alert" : undefined}
         >
-          {error || "placeholder"}
+          {error}
         </p>
       </div>
 
@@ -144,8 +145,8 @@ function Key({
       disabled={disabled}
       aria-label={label}
       className="flex h-[72px] items-center justify-center rounded-2xl bg-surface text-[28px] font-medium
-                 text-ink shadow-[0_1px_2px_rgba(18,24,32,0.08)] transition
-                 active:scale-[0.97] active:bg-brand-soft disabled:opacity-40 disabled:active:scale-100"
+                 text-ink shadow-card transition hover:bg-brand-soft
+                 active:scale-[0.97] disabled:opacity-40 disabled:hover:bg-surface disabled:active:scale-100"
     >
       {children}
     </button>

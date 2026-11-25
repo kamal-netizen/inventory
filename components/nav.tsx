@@ -119,12 +119,12 @@ export function SideNav({ warehouseName, logo }: { warehouseName: string; logo?:
           <img src={logo} alt="" className="h-10 w-10 shrink-0 object-contain" />
         )}
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Warehouse</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-muted">Warehouse</p>
           <p className="mt-0.5 text-[17px] font-semibold leading-tight">{warehouseName}</p>
         </div>
       </div>
 
-      <nav className="flex flex-col gap-1">
+      <nav aria-label="Main" className="flex flex-col gap-1">
         {TABS.map((tab) => {
           const active = isActive(pathname, tab.href, tab.exact);
           return (
@@ -156,7 +156,10 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
+    <nav
+      aria-label="Main"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+    >
       <div className="mx-auto flex max-w-md">
         {TABS.map((tab) => {
           const active = isActive(pathname, tab.href, tab.exact);

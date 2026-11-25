@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loadHistoryAction, undoMovementAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
-import { dayKey, formatFullDate, formatTime, productLabel, reasonLabel } from "@/lib/format";
+import { dayKey, formatFullDate, formatTime, plural, productLabel, reasonLabel } from "@/lib/format";
 import type { MovementRow } from "@/lib/queries";
 import { PAGE } from "@/lib/types";
 
@@ -23,6 +23,7 @@ export default function HistoryList({
   const [movements, setMovements] = useState(initial);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [pending, startTransition] = useTransition();
+  const [undoing, startUndo] = useTransition();
 
   /**
    * Asks for what follows the last row on screen, rather than for an offset.
@@ -47,7 +48,7 @@ export default function HistoryList({
   }
 
   function undo(movementId: number) {
-    startTransition(async () => {
+    startUndo(async () => {
       const result = await undoMovementAction(movementId);
       toast(result.ok ? { message: "Undone" } : { message: result.error, tone: "error" });
       if (result.ok) {
@@ -61,7 +62,7 @@ export default function HistoryList({
 
   if (movements.length === 0) {
     return (
-      <div className="card mt-2 px-6 py-12 text-center">
+      <div className="card px-6 py-12 text-center">
         <p className="text-[17px] font-semibold">Nothing yet</p>
         <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
           Every stock change and delivery note line will show up here, permanently.
@@ -86,8 +87,8 @@ export default function HistoryList({
 
   return (
     <>
-      <p className="mb-2 px-1 text-[14px] text-muted">
-        {total} change{total === 1 ? "" : "s"} recorded
+      <p className="mb-4 px-1 text-[14px] text-muted">
+        {plural(total, "change")} recorded
       </p>
 
       {days.map((day) => (
@@ -96,7 +97,7 @@ export default function HistoryList({
             {formatFullDate(day.at)}
           </h2>
 
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {day.rows.map((row) => {
               const undone = row.undone === 1;
               const positive = row.change > 0;
@@ -120,7 +121,7 @@ export default function HistoryList({
                         <>
                           <Link
                             href={`/invoices/${row.invoice_id}`}
-                            className="font-medium text-brand hover:underline"
+                            className="font-medium text-brand hover:underline focus-visible:-outline-offset-2"
                           >
                             {row.invoice_ref}
                           </Link>
@@ -150,8 +151,8 @@ export default function HistoryList({
                     <button
                       type="button"
                       onClick={() => undo(row.id)}
-                      disabled={pending}
-                      className="shrink-0 rounded-xl px-3 py-2 text-[14px] font-semibold text-muted
+                      disabled={undoing}
+                      className="h-10 shrink-0 rounded-xl px-3 text-[14px] font-semibold text-muted
                                  transition hover:bg-page hover:text-ink disabled:opacity-50"
                     >
                       Undo

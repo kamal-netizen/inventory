@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { dayKey, formatExpiry, matchesSearch } from "@/lib/format";
+import { dayKey, formatExpiry, matchesSearch, plural } from "@/lib/format";
 import { PAGE, type Product } from "@/lib/types";
 
 type Status = "all" | "in" | "low" | "out";
-
 
 const isLow = (p: Product) => p.low_stock_at > 0 && p.quantity <= p.low_stock_at;
 
@@ -95,7 +94,7 @@ export default function StockList({ products }: { products: Product[] }) {
 
   if (products.length === 0) {
     return (
-      <div className="card mt-6 px-6 py-12 text-center md:py-20">
+      <div className="card px-6 py-12 text-center">
         <p className="text-[17px] font-semibold">No products yet</p>
         <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
           Add products one at a time, or bring your whole list in from a spreadsheet.
@@ -111,7 +110,7 @@ export default function StockList({ products }: { products: Product[] }) {
           <Link
             href="/products/new"
             className="tap inline-flex items-center justify-center rounded-2xl border border-line
-                       px-6 font-semibold transition hover:bg-surface"
+                       bg-surface px-6 font-semibold transition hover:border-brand hover:text-brand"
           >
             Add one product
           </Link>
@@ -122,7 +121,7 @@ export default function StockList({ products }: { products: Product[] }) {
 
   return (
     <>
-      <div className="sticky top-[57px] z-20 -mx-4 flex gap-2 bg-page px-4 pb-3 pt-1 md:top-0 md:-mx-8 md:gap-3 md:px-8 md:pb-4 md:pt-2">
+      <div className="sticky top-[67px] z-20 -mx-4 -mt-1 flex gap-2 bg-page px-4 pb-2 pt-1 md:top-0 md:-mx-8 md:-mt-2 md:gap-3 md:px-8 md:pt-2">
         <div className="relative flex-1">
           <svg
             width="20"
@@ -143,12 +142,13 @@ export default function StockList({ products }: { products: Product[] }) {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search product, brand or flavour"
             aria-label="Search products"
-            className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-11 outline-none
+            className="h-14 w-full rounded-2xl border border-line bg-surface pl-12 pr-11 text-ellipsis outline-none
                        placeholder:text-muted focus:border-brand"
           />
           {search && (
             <button
               type="button"
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => setSearch("")}
               aria-label="Clear search"
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2.5 text-muted
@@ -163,31 +163,32 @@ export default function StockList({ products }: { products: Product[] }) {
 
         <Link
           href="/products/new"
-          className="hidden shrink-0 items-center gap-2 rounded-2xl bg-brand px-5 font-semibold
-                     text-white transition hover:opacity-90 md:flex"
+          aria-label="Add product"
+          className="flex shrink-0 items-center gap-2 rounded-2xl bg-brand px-5 font-semibold
+                     text-white transition hover:opacity-90"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
           </svg>
-          Add
+          <span className="hidden sm:inline">Add</span>
         </Link>
         <Link
           href="/products/import"
           className="hidden shrink-0 items-center rounded-2xl border border-line bg-surface px-5
-                     font-medium transition hover:border-brand hover:text-brand md:flex"
+                     font-semibold transition hover:border-brand hover:text-brand md:flex"
         >
           Import
         </Link>
       </div>
 
       {/* Chips scroll sideways on a phone rather than wrapping the row in two. */}
-      <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:overflow-visible md:px-0">
+      <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 py-1 md:mx-0 md:overflow-visible md:px-0">
         <select
           value={brand}
           onChange={(event) => setBrand(event.target.value)}
           aria-label="Filter by brand"
           className="h-10 max-w-[9.5rem] shrink-0 rounded-xl border border-line bg-surface px-3
-                     text-[14px] font-medium outline-none focus:border-brand md:max-w-none"
+                     font-medium outline-none focus:border-brand md:max-w-none md:text-[14px]"
         >
           <option value="">All brands</option>
           {brands.map((option) => (
@@ -215,7 +216,7 @@ export default function StockList({ products }: { products: Product[] }) {
                 ? value === "low"
                   ? "bg-warn-soft text-warn"
                   : "bg-brand-soft text-brand"
-                : "border border-line bg-surface text-muted hover:text-ink"
+                : "border border-line bg-surface text-muted hover:border-brand hover:text-brand"
             }`}
           >
             {label}
@@ -233,19 +234,19 @@ export default function StockList({ products }: { products: Product[] }) {
         </Link>
       </div>
 
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3 px-1">
         <p className="text-[14px] text-muted">
           {filtered
-            ? `${visible.length} of ${products.length} products`
-            : `${products.length} products`}
+            ? `${visible.length} of ${plural(products.length, "product")}`
+            : plural(products.length, "product")}
           {more > 0 && ` · showing ${shown}`}
         </p>
-        {filtered && (
+        {filtered && visible.length > 0 && (
           <button
             type="button"
             onClick={clearFilters}
-            className="rounded-lg px-2 py-1 text-[13px] font-medium text-muted transition
-                       hover:bg-surface hover:text-ink"
+            className="-my-2.5 h-10 shrink-0 rounded-xl px-3 text-[14px] font-semibold text-muted transition
+                       hover:bg-line hover:text-ink"
           >
             Clear filters
           </button>
@@ -253,14 +254,15 @@ export default function StockList({ products }: { products: Product[] }) {
       </div>
 
       {visible.length === 0 ? (
-        <div className="px-1 py-10 text-center">
-          <p className="text-[15px] text-muted">
-            {search ? `Nothing matches “${search}”.` : "Nothing matches these filters."}
+        <div className="card px-6 py-12 text-center">
+          <p className="text-[17px] font-semibold">Nothing found</p>
+          <p className="mx-auto mt-2 max-w-[19rem] text-[15px] leading-snug text-muted">
+            {search ? "Try part of the product name, brand or flavour." : "No product matches these filters."}
           </p>
           <button
             type="button"
             onClick={clearFilters}
-            className="mt-3 rounded-xl border border-line bg-surface px-4 py-2 text-[14px] font-medium
+            className="mt-4 h-10 rounded-xl border border-line bg-surface px-3 text-[14px] font-semibold
                        transition hover:border-brand hover:text-brand"
           >
             Clear filters
@@ -268,16 +270,16 @@ export default function StockList({ products }: { products: Product[] }) {
         </div>
       ) : (
         groups.map((group) => (
-          <section key={group.brand || "_none"} className="mb-4">
+          <section key={group.brand || "_none"} className="mb-5">
             {group.brand && (
-              <h2 className="mb-1.5 px-1 text-[12px] font-semibold uppercase tracking-wider text-muted">
+              <h2 className="mb-2 px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
                 {group.brand}
               </h2>
             )}
 
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {group.items.map((product) => {
-                const low = product.low_stock_at > 0 && product.quantity <= product.low_stock_at;
+                const low = isLow(product);
 
                 return (
                   <li key={product.id}>
@@ -330,7 +332,7 @@ export default function StockList({ products }: { products: Product[] }) {
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className="shrink-0 text-line"
+                        className="shrink-0 text-muted/60"
                         aria-hidden="true"
                       >
                         <path d="m9 5 7 7-7 7" />
@@ -355,25 +357,13 @@ export default function StockList({ products }: { products: Product[] }) {
         </button>
       )}
 
-      <div className="mt-3 flex flex-col gap-2 md:hidden">
-        <Link
-          href="/products/new"
-          className="tap flex items-center justify-center gap-2 rounded-2xl border border-dashed
-                     border-line font-semibold text-muted active:bg-surface"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          </svg>
-          Add product
-        </Link>
-        <Link
-          href="/products/import"
-          className="tap flex items-center justify-center rounded-2xl text-[15px] font-medium text-muted
-                     active:bg-surface"
-        >
-          Import from Excel
-        </Link>
-      </div>
+      <Link
+        href="/products/import"
+        className="tap mt-3 flex items-center justify-center rounded-2xl border border-line bg-surface
+                   font-semibold transition hover:border-brand hover:text-brand md:hidden"
+      >
+        Import from Excel
+      </Link>
     </>
   );
 }

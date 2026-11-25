@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { applyImportAction, previewImportAction } from "@/app/actions";
 import { useToast } from "@/components/toast";
+import { plural } from "@/lib/format";
 import type { PlannedRow } from "@/lib/queries";
 
 interface Preview {
@@ -28,6 +29,7 @@ export default function ImportForm() {
   const [useHeadings, setUseHeadings] = useState(true);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+  const [importing, startImport] = useTransition();
 
   function read(chosen: File, headings: boolean) {
     setError("");
@@ -62,7 +64,7 @@ export default function ImportForm() {
 
   function apply() {
     if (!preview) return;
-    startTransition(async () => {
+    startImport(async () => {
       const result = await applyImportAction(preview.rows, {
         hasQuantity: preview.hasQuantity,
         hasLowStock: preview.hasLowStock,
@@ -109,16 +111,16 @@ export default function ImportForm() {
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
-            disabled={pending}
+            disabled={pending || importing}
             className="tap flex-1 rounded-2xl bg-brand px-5 font-semibold text-white
-                       transition hover:opacity-90 disabled:opacity-60"
+                       transition hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
           >
             {file ? "Choose a different file" : "Choose file"}
           </button>
           <a
             href="/api/import-template"
-            className="tap flex items-center justify-center rounded-2xl border border-line px-5
-                       font-medium transition hover:border-brand hover:text-brand"
+            className="tap flex items-center justify-center rounded-2xl border border-line bg-surface px-5
+                       font-semibold transition hover:border-brand hover:text-brand"
           >
             Download template
           </a>
@@ -153,8 +155,11 @@ export default function ImportForm() {
               <Stat label="Unchanged" value={counts.same} />
             </div>
 
-            <dl className="mt-4 space-y-2 text-[15px]">
+            <dl className="mt-4 text-[15px]">
               <Row term="Columns found" detail={preview.headers.join(", ") || "—"} />
+            </dl>
+
+            <div className="mt-2 space-y-2">
               {!preview.hasQuantity && (
                 <Note>
                   No quantity column, so new products come in with <strong>0 in stock</strong> and
@@ -164,7 +169,7 @@ export default function ImportForm() {
               {!preview.hasLowStock && (
                 <Note>No low-stock column, so no alerts are set. You can add those per product later.</Note>
               )}
-            </dl>
+            </div>
 
             {preview.brandSource === "headings" && (
               <div className="mt-4 rounded-2xl bg-page p-4">
@@ -177,7 +182,8 @@ export default function ImportForm() {
                   />
                   <span className="text-[15px] leading-snug">
                     <strong className="font-semibold">
-                      Treat {preview.detectedBrands.length} heading rows as brands
+                      Treat {plural(preview.detectedBrands.length, "heading row")} as{" "}
+                      {preview.detectedBrands.length === 1 ? "a brand" : "brands"}
                     </strong>
                     <span className="mt-1 block text-muted">
                       Rows sitting on their own above a group of products. Untick to import them as
@@ -224,7 +230,7 @@ export default function ImportForm() {
                         {row.brand}
                       </span>
                     )}
-                    <span className="block break-words text-[15px]">{row.name}</span>
+                    <span className="block break-words text-[15px] font-medium">{row.name}</span>
                     {row.flavor && (
                       <span className="block truncate text-[13px] text-muted">{row.flavor}</span>
                     )}
@@ -237,7 +243,7 @@ export default function ImportForm() {
                   </span>
 
                   <span
-                    className={`w-20 shrink-0 text-right text-[12px] font-semibold uppercase tracking-wide ${
+                    className={`w-20 shrink-0 text-right text-[12px] font-semibold uppercase tracking-wider ${
                       row.action === "add"
                         ? "text-brand"
                         : row.action === "update"
@@ -256,13 +262,15 @@ export default function ImportForm() {
           <button
             type="button"
             onClick={apply}
-            disabled={pending || counts.add + counts.update === 0}
+            disabled={pending || importing || counts.add + counts.update === 0}
             className="tap w-full rounded-2xl bg-brand text-[17px] font-semibold text-white
-                       transition hover:opacity-90 disabled:bg-line disabled:text-muted"
+                       transition hover:opacity-90 disabled:bg-line disabled:text-muted disabled:hover:opacity-100"
           >
-            {counts.add + counts.update === 0
-              ? "Nothing to import"
-              : `Import ${counts.add + counts.update} products`}
+            {importing
+              ? "Importing…"
+              : counts.add + counts.update === 0
+                ? "Nothing to import"
+                : `Import ${plural(counts.add + counts.update, "product")}`}
           </button>
         </>
       )}

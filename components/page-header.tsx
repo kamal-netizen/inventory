@@ -14,7 +14,7 @@ export default function PageHeader({
       <Link
         href={back}
         aria-label="Back"
-        className="-ml-2.5 shrink-0 rounded-xl p-2.5 text-muted active:bg-surface"
+        className="-ml-2.5 shrink-0 rounded-xl p-2.5 text-muted transition hover:bg-line hover:text-ink"
       >
         <svg
           width="24"
@@ -31,8 +31,10 @@ export default function PageHeader({
         </svg>
       </Link>
       <div className="min-w-0">
-        <h1 className="truncate text-[19px] font-semibold leading-tight">{title}</h1>
-        {subtitle && <p className="truncate text-[14px] text-muted">{subtitle}</p>}
+        <h1 className="break-words text-[22px] font-semibold leading-tight tracking-tight md:text-[24px]">
+          {title}
+        </h1>
+        {subtitle && <p className="mt-0.5 truncate text-[14px] text-muted">{subtitle}</p>}
       </div>
     </div>
   );

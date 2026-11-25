@@ -12,7 +12,7 @@ export default async function HistoryPage() {
   const first = await listMovements(warehouse.key);
   return (
     <div className="md:max-w-3xl">
-      <h1 className="mb-4 text-[19px] font-semibold md:text-[22px]">History</h1>
+      <h1 className="mb-4 text-[22px] font-semibold leading-tight tracking-tight md:text-[24px]">History</h1>
       <HistoryList
         initial={first.rows}
         hasMore={first.hasMore}
