@@ -476,7 +476,8 @@ export async function cancelInvoice(warehouse: string, invoiceId: number): Promi
          WHERE warehouse = $1 AND invoice_id = $2 AND product_id = $3`,
         [warehouse, invoiceId, line.product_id]
       );
-      const reverse = line.change - int(asideRow.rows[0]?.n);
+      const aside = int(asideRow.rows[0]?.n);
+      const reverse = line.change - aside;
 
       if (product && product.quantity - reverse < 0) {
         const label = product.flavor ? `${product.name} · ${product.flavor}` : product.name;
@@ -491,6 +492,19 @@ export async function cancelInvoice(warehouse: string, invoiceId: number): Promi
         [reverse, warehouse, line.product_id]
       );
       await client.query("UPDATE movements SET undone = 1 WHERE id = $1", [line.id]);
+
+      // The damage carries no invoice_id, so it is not undone above. Left alone the
+      // log would keep counting units that were only ever on this note.
+      if (aside > 0) {
+        await logMovement(
+          client,
+          warehouse,
+          line.product_id,
+          aside,
+          "damage",
+          `${invoice.ref} · note cancelled`
+        );
+      }
     }
 
     // The note is void, so whatever was kept aside against it goes with it.
